@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pod Engine</title>
+<link rel="stylesheet" href="viz.css">
+</head>
+<body>
+<div id="podviz" class="pv-root"></div>
+<script>
+  // Browsers do not load module scripts from file://, so this check must not be a module.
+  (function () {
+    if (location.protocol !== "file:") return;
+    var el = document.getElementById("podviz");
+    el.innerHTML = '<div class="pv-msg"><p>This page has to be served, not opened as a file ' +
+      '(browsers block loading its scripts and data from file://).</p><p>Run <code>python -m podengine serve</code> ' +
+      'and open the address it prints.</p></div>';
+  })();
+</script>
+<script type="module">
+  import { init } from "./js/app.js";
+  init(document.getElementById("podviz"));
+</script>
+</body>
+</html>

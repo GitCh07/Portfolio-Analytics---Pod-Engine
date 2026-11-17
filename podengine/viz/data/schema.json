@@ -1,0 +1,596 @@
+{
+ "$schema": "http://json-schema.org/draft-07/schema#",
+ "title": "Pod Engine viz export",
+ "description": "One schema per file under 'files'. All numbers are plain decimals (0.05 = 5%). Dates are YYYY-MM-DD.",
+ "files": {
+  "meta.json": {
+   "type": "object",
+   "required": [
+    "schema_version",
+    "generated",
+    "source",
+    "synthetic",
+    "profile",
+    "asof",
+    "label",
+    "files",
+    "reports"
+   ],
+   "properties": {
+    "schema_version": {
+     "type": "integer",
+     "enum": [
+      1
+     ]
+    },
+    "label": {
+     "type": "string"
+    },
+    "generated": {
+     "type": "string"
+    },
+    "source": {
+     "type": "string"
+    },
+    "synthetic": {
+     "type": "boolean"
+    },
+    "profile": {
+     "type": "string"
+    },
+    "asof": {
+     "type": "string",
+     "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+    },
+    "files": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "minItems": 1
+    },
+    "reports": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "minItems": 0
+    }
+   }
+  },
+  "fan.json": {
+   "type": "object",
+   "required": [
+    "schema_version",
+    "label",
+    "costs",
+    "horizon_days",
+    "n_paths",
+    "percentiles",
+    "units",
+    "frames"
+   ],
+   "properties": {
+    "schema_version": {
+     "type": "integer",
+     "enum": [
+      1
+     ]
+    },
+    "label": {
+     "type": "string"
+    },
+    "costs": {
+     "type": "string"
+    },
+    "horizon_days": {
+     "type": "integer",
+     "minimum": 1
+    },
+    "n_paths": {
+     "type": "integer",
+     "minimum": 100
+    },
+    "percentiles": {
+     "type": "array",
+     "items": {
+      "type": "integer"
+     },
+     "minItems": 5,
+     "maxItems": 5
+    },
+    "units": {
+     "type": "string"
+    },
+    "frames": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "date",
+       "end",
+       "bands",
+       "realized",
+       "pit",
+       "ex_ante_vol"
+      ],
+      "properties": {
+       "date": {
+        "type": "string",
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+       },
+       "end": {
+        "type": "string",
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+       },
+       "bands": {
+        "type": "object",
+        "required": [
+         "5",
+         "25",
+         "50",
+         "75",
+         "95"
+        ],
+        "additionalProperties": {
+         "type": "array",
+         "items": {
+          "type": "number"
+         },
+         "minItems": 2
+        }
+       },
+       "realized": {
+        "type": "array",
+        "items": {
+         "type": "number"
+        },
+        "minItems": 2
+       },
+       "pit": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+       },
+       "ex_ante_vol": {
+        "type": "number"
+       }
+      }
+     },
+     "minItems": 1
+    }
+   }
+  },
+  "calibration.json": {
+   "type": "object",
+   "required": [
+    "schema_version",
+    "label",
+    "bins",
+    "tail",
+    "horizon_days",
+    "frames"
+   ],
+   "properties": {
+    "schema_version": {
+     "type": "integer",
+     "enum": [
+      1
+     ]
+    },
+    "label": {
+     "type": "string"
+    },
+    "bins": {
+     "type": "integer",
+     "minimum": 2
+    },
+    "tail": {
+     "type": "number",
+     "minimum": 0,
+     "maximum": 0.5
+    },
+    "horizon_days": {
+     "type": "integer"
+    },
+    "frames": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "date",
+       "pit",
+       "n",
+       "counts",
+       "tail_share",
+       "tail_expected",
+       "tail_p",
+       "flag"
+      ],
+      "properties": {
+       "date": {
+        "type": "string",
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+       },
+       "pit": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+       },
+       "n": {
+        "type": "integer",
+        "minimum": 1
+       },
+       "counts": {
+        "type": "array",
+        "items": {
+         "type": "integer",
+         "minimum": 0
+        },
+        "minItems": 2
+       },
+       "tail_share": {
+        "type": [
+         "number",
+         "null"
+        ]
+       },
+       "tail_expected": {
+        "type": "number"
+       },
+       "tail_p": {
+        "type": [
+         "number",
+         "null"
+        ]
+       },
+       "chi2_p": {
+        "type": [
+         "number",
+         "null"
+        ]
+       },
+       "ks_p": {
+        "type": [
+         "number",
+         "null"
+        ]
+       },
+       "flag": {
+        "type": "string",
+        "enum": [
+         "ok",
+         "thin",
+         "fat",
+         "insufficient"
+        ]
+       }
+      }
+     },
+     "minItems": 1
+    }
+   }
+  },
+  "regimes.json": {
+   "type": "object",
+   "required": [
+    "schema_version",
+    "label",
+    "grid",
+    "frames"
+   ],
+   "properties": {
+    "schema_version": {
+     "type": "integer",
+     "enum": [
+      1
+     ]
+    },
+    "label": {
+     "type": "string"
+    },
+    "costs": {
+     "type": "string"
+    },
+    "horizon_days": {
+     "type": "integer"
+    },
+    "n_paths": {
+     "type": "integer",
+     "minimum": 1000
+    },
+    "units": {
+     "type": "string"
+    },
+    "grid": {
+     "type": "array",
+     "items": {
+      "type": "number"
+     },
+     "minItems": 10
+    },
+    "frames": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "date",
+       "probs",
+       "current",
+       "ridges",
+       "unconditional"
+      ],
+      "properties": {
+       "date": {
+        "type": "string",
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+       },
+       "probs": {
+        "type": "array",
+        "items": {
+         "type": "number",
+         "minimum": 0,
+         "maximum": 1
+        },
+        "minItems": 1
+       },
+       "current": {
+        "type": "integer",
+        "minimum": 0
+       },
+       "ridges": {
+        "type": "array",
+        "items": {
+         "$ref": "#/definitions/ridge"
+        },
+        "minItems": 1
+       },
+       "unconditional": {
+        "$ref": "#/definitions/ridge"
+       }
+      }
+     },
+     "minItems": 0
+    }
+   }
+  },
+  "frontier.json": {
+   "type": "object",
+   "required": [
+    "schema_version",
+    "label",
+    "window_days",
+    "constraints",
+    "frames"
+   ],
+   "properties": {
+    "schema_version": {
+     "type": "integer",
+     "enum": [
+      1
+     ]
+    },
+    "label": {
+     "type": "string"
+    },
+    "costs": {
+     "type": "string"
+    },
+    "window_days": {
+     "type": "integer"
+    },
+    "covariance": {
+     "type": "string"
+    },
+    "expected_returns": {
+     "type": "string"
+    },
+    "constraints": {
+     "type": "object",
+     "required": [
+      "allow_short",
+      "gross_cap",
+      "asset_cap"
+     ],
+     "properties": {
+      "allow_short": {
+       "type": "boolean"
+      },
+      "gross_cap": {
+       "type": "number"
+      },
+      "asset_cap": {
+       "type": "number"
+      }
+     }
+    },
+    "frames": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "date",
+       "n_assets",
+       "shrinkage",
+       "mean_shrinkage",
+       "frontier",
+       "tangency",
+       "portfolio"
+      ],
+      "properties": {
+       "date": {
+        "type": "string",
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+       },
+       "n_assets": {
+        "type": "integer",
+        "minimum": 2
+       },
+       "shrinkage": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+       },
+       "mean_shrinkage": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+       },
+       "frontier": {
+        "type": "array",
+        "items": {
+         "type": "array",
+         "items": {
+          "type": "number"
+         },
+         "minItems": 2,
+         "maxItems": 2
+        },
+        "minItems": 2
+       },
+       "tangency": {
+        "type": "array",
+        "items": {
+         "type": "number"
+        },
+        "minItems": 2,
+        "maxItems": 2
+       },
+       "portfolio": {
+        "type": "array",
+        "items": {
+         "type": "number"
+        },
+        "minItems": 2,
+        "maxItems": 2
+       }
+      }
+     },
+     "minItems": 0
+    }
+   }
+  },
+  "exposure.json": {
+   "type": "object",
+   "required": [
+    "schema_version",
+    "label",
+    "units",
+    "dates",
+    "classes",
+    "long",
+    "short",
+    "gross",
+    "net",
+    "gross_cap"
+   ],
+   "properties": {
+    "schema_version": {
+     "type": "integer",
+     "enum": [
+      1
+     ]
+    },
+    "label": {
+     "type": "string"
+    },
+    "units": {
+     "type": "string"
+    },
+    "dates": {
+     "type": "array",
+     "items": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+     },
+     "minItems": 1
+    },
+    "classes": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "minItems": 1
+    },
+    "long": {
+     "type": "object",
+     "additionalProperties": {
+      "type": "array",
+      "items": {
+       "type": "number"
+      },
+      "minItems": 0
+     }
+    },
+    "short": {
+     "type": "object",
+     "additionalProperties": {
+      "type": "array",
+      "items": {
+       "type": "number"
+      },
+      "minItems": 0
+     }
+    },
+    "gross": {
+     "type": "array",
+     "items": {
+      "type": "number"
+     },
+     "minItems": 1
+    },
+    "net": {
+     "type": "array",
+     "items": {
+      "type": "number"
+     },
+     "minItems": 1
+    },
+    "gross_cap": {
+     "type": "number"
+    }
+   }
+  }
+ },
+ "definitions": {
+  "ridge": {
+   "type": "object",
+   "required": [
+    "name",
+    "density",
+    "bandwidth",
+    "q"
+   ],
+   "properties": {
+    "name": {
+     "type": "string"
+    },
+    "density": {
+     "type": "array",
+     "items": {
+      "type": "number",
+      "minimum": 0
+     },
+     "minItems": 10
+    },
+    "bandwidth": {
+     "type": "number",
+     "exclusiveMinimum": 0
+    },
+    "q": {
+     "type": "array",
+     "items": {
+      "type": "number"
+     },
+     "minItems": 3
+    },
+    "regime_vol": {
+     "type": [
+      "number",
+      "null"
+     ]
+    }
+   }
+  }
+ }
+}

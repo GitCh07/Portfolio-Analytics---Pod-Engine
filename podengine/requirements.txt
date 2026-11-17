@@ -1,0 +1,7 @@
+numpy>=1.24
+pandas>=2.0
+scipy>=1.10
+yfinance>=0.2.40
+pytest>=7
+jsonschema>=4      # optional: tests validate viewer data with it (a built-in validator is the fallback)
+websockets>=11     # optional: drives headless Chrome in the viewer tests

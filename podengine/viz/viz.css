@@ -1,0 +1,43 @@
+/* Pod Engine viewer. Every rule is scoped under .pv-root so nothing leaks. */
+.pv-root{--pv-bg:#f6f6f4;--pv-surface:#fcfcfb;--pv-line:#e3e2de;--pv-text:#0b0b0b;--pv-text2:#52514e;--pv-muted:#8a8984;
+  --pv-s1:#2a78d6;--pv-s2:#eb6834;--pv-s3:#1baf7a;--pv-s4:#eda100;--pv-s5:#e87ba4;--pv-band1:#cde2fb;--pv-band2:#9ec5f4;
+  --pv-mint:#2fbf8f;--pv-gold:#c9930a;--pv-neutral:#b9b8b2;--pv-good:#0ca30c;--pv-warn:#fab219;--pv-crit:#d03b3b;
+  color-scheme:light;background:var(--pv-bg);color:var(--pv-text);min-height:100vh;
+  font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+@media (prefers-color-scheme:dark){.pv-root{color-scheme:dark;--pv-bg:#111110;--pv-surface:#1a1a19;--pv-line:#32322f;
+  --pv-text:#f0efec;--pv-text2:#c3c2b7;--pv-muted:#8a8984;--pv-s1:#3987e5;--pv-s2:#d95926;--pv-s3:#199e70;--pv-s4:#c98500;
+  --pv-s5:#d55181;--pv-band1:#173f70;--pv-band2:#1f5aa3;--pv-mint:#3ddc97;--pv-gold:#e3b341;--pv-neutral:#55544f}}
+.pv-root *{box-sizing:border-box}
+.pv-root .pv-top{position:sticky;top:0;z-index:5;background:var(--pv-bg);border-bottom:1px solid var(--pv-line)}
+.pv-root .pv-head{display:flex;align-items:center;gap:16px;flex-wrap:wrap;max-width:1180px;margin:0 auto;padding:12px 20px 0}
+.pv-root .pv-title{font-weight:650;font-size:17px;margin-right:auto}
+.pv-root .pv-meta{font-size:12.5px;color:var(--pv-muted)}
+.pv-root .pv-toggle{display:inline-flex;align-items:center;gap:8px;font-size:13px;color:var(--pv-text2);cursor:pointer;user-select:none}
+.pv-root .pv-toggle input{width:34px;height:18px;appearance:none;background:var(--pv-line);border-radius:9px;position:relative;cursor:pointer;margin:0}
+.pv-root .pv-toggle input::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--pv-surface);transition:left .15s}
+.pv-root .pv-toggle input:checked{background:var(--pv-s1)}
+.pv-root .pv-toggle input:checked::after{left:18px}
+.pv-root .pv-tabs{display:flex;gap:2px;overflow-x:auto;max-width:1180px;margin:0 auto;padding:8px 20px 0}
+.pv-root .pv-tab{border:0;background:none;color:var(--pv-text2);font:inherit;font-size:14px;padding:8px 12px;border-bottom:2px solid transparent;cursor:pointer;white-space:nowrap}
+.pv-root .pv-tab[aria-selected=true]{color:var(--pv-text);border-bottom-color:var(--pv-s1);font-weight:600}
+.pv-root .pv-panel{max-width:1180px;margin:0 auto;padding:16px 20px 40px}
+.pv-root .pv-panel[hidden]{display:none}
+.pv-root .pv-frame{width:100%;height:calc(100vh - 120px);border:1px solid var(--pv-line);border-radius:10px;background:var(--pv-surface)}
+.pv-root .pv-card{background:var(--pv-surface);border:1px solid var(--pv-line);border-radius:10px;padding:14px 16px}
+.pv-root .pv-h{font-size:18px;font-weight:650;margin:0 0 2px}
+.pv-root .pv-label{display:inline-block;font-size:12px;color:var(--pv-text2);border:1px solid var(--pv-line);border-radius:999px;padding:1px 9px;margin:2px 6px 8px 0}
+.pv-root .pv-p{color:var(--pv-text2);margin:4px 0 10px;max-width:80ch;font-size:14px}
+.pv-root .pv-canvas{display:block;width:100%;height:440px}
+.pv-root .pv-controls{display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap;font-size:13px;color:var(--pv-text2)}
+.pv-root .pv-btn{border:1px solid var(--pv-line);background:var(--pv-surface);color:var(--pv-text);border-radius:8px;padding:5px 12px;font:inherit;cursor:pointer;min-width:74px}
+.pv-root .pv-btn:disabled{opacity:.45;cursor:not-allowed}
+.pv-root .pv-select{border:1px solid var(--pv-line);background:var(--pv-surface);color:var(--pv-text);border-radius:8px;padding:4px 6px;font:inherit}
+.pv-root .pv-scrub{flex:1;min-width:180px;accent-color:var(--pv-s1)}
+.pv-root .pv-date{font-variant-numeric:tabular-nums;min-width:96px;color:var(--pv-text)}
+.pv-root .pv-legend{display:flex;flex-wrap:wrap;gap:14px;font-size:12.5px;color:var(--pv-text2);margin:6px 0 2px}
+.pv-root .pv-legend i{display:inline-block;width:16px;height:3px;border-radius:2px;margin-right:6px;vertical-align:middle}
+.pv-root .pv-legend i.pv-dash{background:none!important;border-top:2px dashed currentColor;height:0}
+.pv-root .pv-flag{font-size:13.5px;margin:6px 0 0;padding:8px 12px;border-radius:8px;border:1px solid var(--pv-line);color:var(--pv-text)}
+.pv-root .pv-flag b{font-weight:650}
+.pv-root .pv-msg{padding:28px;text-align:center;color:var(--pv-text2)}
+.pv-root code{font-size:12.5px;background:var(--pv-bg);padding:1px 5px;border-radius:4px}

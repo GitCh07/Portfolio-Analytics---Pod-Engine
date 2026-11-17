@@ -1,0 +1,17 @@
+{
+ "schema_version": 1,
+ "generated": "2026-11-17T20:18:38",
+ "source": "SYNTHETIC DEMO DATA",
+ "synthetic": true,
+ "profile": "unconstrained",
+ "asof": "2025-12-31",
+ "label": "Simulated / historical replay \u00b7 not a forecast",
+ "files": [
+  "calibration.json",
+  "exposure.json",
+  "fan.json",
+  "frontier.json",
+  "regimes.json"
+ ],
+ "reports": []
+}
