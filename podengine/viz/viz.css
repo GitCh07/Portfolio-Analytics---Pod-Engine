@@ -22,7 +22,20 @@
 .pv-root .pv-tab[aria-selected=true]{color:var(--pv-text);border-bottom-color:var(--pv-s1);font-weight:600}
 .pv-root .pv-panel{max-width:1180px;margin:0 auto;padding:16px 20px 40px}
 .pv-root .pv-panel[hidden]{display:none}
-.pv-root .pv-frame{width:100%;height:calc(100vh - 120px);border:1px solid var(--pv-line);border-radius:10px;background:var(--pv-surface)}
+.pv-root .pv-panel.pv-full{max-width:none;padding:0}
+.pv-root .pv-frame{display:block;width:100%;height:calc(100vh - 92px);border:0;background:var(--pv-bg)}
+.pv-root .pv-form{max-width:1180px;margin:0 auto;padding:16px 20px 4px}
+.pv-root .pv-form details{background:var(--pv-surface);border:1px solid var(--pv-line);border-radius:10px;padding:10px 16px}
+.pv-root .pv-form summary{cursor:pointer;font-weight:650;font-size:16px;padding:4px 0}
+.pv-root .pv-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px 18px;margin:10px 0}
+.pv-root .pv-field{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--pv-text2)}
+.pv-root .pv-field textarea,.pv-root .pv-field input,.pv-root .pv-field select{font:13px ui-monospace,SFMono-Regular,Menlo,monospace;
+  color:var(--pv-text);background:var(--pv-bg);border:1px solid var(--pv-line);border-radius:8px;padding:7px 9px}
+.pv-root .pv-field textarea{min-height:150px;resize:vertical}
+.pv-root .pv-btn.pv-primary{background:var(--pv-s1);border-color:var(--pv-s1);color:#fff;font-weight:600}
+.pv-root .pv-status{font-size:13px;color:var(--pv-text2)}
+.pv-root .pv-status.pv-err{color:var(--pv-crit)}
+.pv-root .pv-note{font-size:13px;color:var(--pv-text2);margin:6px 0}
 .pv-root .pv-card{background:var(--pv-surface);border:1px solid var(--pv-line);border-radius:10px;padding:14px 16px}
 .pv-root .pv-h{font-size:18px;font-weight:650;margin:0 0 2px}
 .pv-root .pv-label{display:inline-block;font-size:12px;color:var(--pv-text2);border:1px solid var(--pv-line);border-radius:999px;padding:1px 9px;margin:2px 6px 8px 0}

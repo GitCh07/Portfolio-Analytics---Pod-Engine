@@ -1,5 +1,6 @@
 """Self-contained HTML report (no external files, works offline)."""
 import html
+import re
 import json
 
 import numpy as np
@@ -12,7 +13,7 @@ CSS = """
 @media (prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#111110;--surface:#1a1a19;--line:#32322f;--text:#f0efec;
 --text2:#c3c2b7;--muted:#8a8984;--s1:#3987e5;--s2:#d95926;--s3:#199e70;--s4:#c98500;--s5:#d55181;--band1:#184f95;--band2:#1c5cab}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
-main{max-width:1120px;margin:0 auto;padding:28px 20px 60px}
+main{max-width:1120px;margin:0 auto;padding:24px 20px 60px}
 h1{font-size:26px;margin:0 0 4px}h2{font-size:19px;margin:38px 0 6px}h3{font-size:15px;margin:18px 0 6px}
 p{margin:6px 0 10px;color:var(--text2);max-width:78ch}.sub{color:var(--text2);margin:0 0 14px}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin:12px 0}
@@ -20,7 +21,12 @@ p{margin:6px 0 10px;color:var(--text2);max-width:78ch}.sub{color:var(--text2);ma
 .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:10px;margin:12px 0}
 .tile{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
 .tile .k{font-size:12px;color:var(--text2)}.tile .v{font-size:22px;font-weight:600;margin-top:2px}.tile .n{font-size:12px;color:var(--muted);margin-top:2px}
-.scroll{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:13.5px}
+.scroll{overflow:auto;max-height:440px;border-radius:6px}table{border-collapse:collapse;width:100%;font-size:13.5px}
+thead th{position:sticky;top:0;background:var(--surface);z-index:1}
+.subtabs{display:flex;gap:2px;overflow-x:auto;border-bottom:1px solid var(--line);margin:18px 0 4px;position:sticky;top:0;background:var(--bg);z-index:3}
+.subtab{border:0;background:none;color:var(--text2);font:inherit;font-size:14px;padding:9px 12px;border-bottom:2px solid transparent;cursor:pointer;white-space:nowrap}
+.subtab[aria-selected=true]{color:var(--text);border-bottom-color:var(--s1);font-weight:600}
+.subpanel[hidden]{display:none}.subpanel>h2{margin-top:18px}
 th,td{padding:6px 10px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
 th{color:var(--text2);font-weight:600}th:first-child,td:first-child{text-align:left}td.l,th.l{text-align:left;white-space:normal}
 .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:14px}
@@ -60,6 +66,9 @@ function lineChart(id,d){const box=document.getElementById(id);if(!box)return;co
   if(d.bands)d.bands.forEach(b=>{h+='<br>'+b.name+': '+fmt(b.lo[i],d.fmt)+' to '+fmt(b.hi[i],d.fmt)});
   tip.innerHTML=h;tip.style.display='block';const left=(X(i)/W*r.width);tip.style.left=(left>r.width*0.6?left-tip.offsetWidth-12:left+12)+'px';tip.style.top='10px'});
  svg.addEventListener('mouseleave',()=>{cross.setAttribute('visibility','hidden');tip.style.display='none'})}
+document.addEventListener("click",e=>{const b=e.target.closest(".subtab");if(!b)return;
+ document.querySelectorAll(".subtab").forEach(x=>x.setAttribute("aria-selected",x===b?"true":"false"));
+ document.querySelectorAll(".subpanel").forEach(p=>p.hidden=p.id!==b.dataset.tab);window.scrollTo(0,0)});
 function barChart(id,d){const box=document.getElementById(id);if(!box)return;const W=500,rh=26,m={l:d.left||130,r:60,t:4,b:4},H=m.t+m.b+rh*d.labels.length;
  const svg=el('svg',{viewBox:`0 0 ${W} ${H}`,role:'img',style:'max-width:560px'},box);const mx=Math.max(...d.values.map(Math.abs),1e-9),neg=Math.min(...d.values)<0;
  const x0=neg?m.l+(W-m.l-m.r)/2:m.l,sc=(neg?(W-m.l-m.r)/2:(W-m.l-m.r))/mx;el('line',{x1:x0,x2:x0,y1:m.t,y2:H-m.b,stroke:'var(--line)'},svg);
@@ -70,6 +79,72 @@ function barChart(id,d){const box=document.getElementById(id);if(!box)return;con
   const hit=el('rect',{x:0,y:y,width:W,height:rh,fill:'transparent'},svg);hit.addEventListener('mousemove',()=>{tip.innerHTML='<b>'+lb+'</b>: '+fmt(v,d.fmt);tip.style.display='block';tip.style.left='40%';tip.style.top=(y/H*100)+'%'});
   hit.addEventListener('mouseleave',()=>tip.style.display='none')})}
 """
+
+
+DISPLAY = {
+    # pods
+    "trend": "Trend", "value_momentum": "Value + Momentum", "defensive": "Defensive", "risk_parity": "Risk Parity",
+    "reversal": "Reversal", "limits & band": "Limits & Band",
+    # asset classes
+    "equity": "Equity", "rates": "Rates", "credit": "Credit", "real": "Real Assets", "fx": "FX", "custom": "Custom",
+    # regimes and states
+    "calm": "Calm", "stress": "Stress", "crisis": "Crisis", "single": "Single", "unconditional": "Unconditional",
+    "full": "Full", "halved": "Halved", "off": "Off", "benched": "Benched",
+}
+SMALL_WORDS = {"a", "an", "and", "as", "at", "by", "for", "in", "of", "on", "or", "per", "the", "to", "vs", "via", "is", "it", "x"}
+
+
+def pretty(name):
+    """Display name for an internal identifier (pod, asset class, regime, state)."""
+    n = str(name)
+    if n in DISPLAY:
+        return DISPLAY[n]
+    n = n.replace("_", " ")
+    return n[:1].upper() + n[1:]
+
+
+def title_case(text):
+    """Capitalise the first letter of each word in a heading or label, keeping
+    acronyms and units (VaR, ES, ETF, 1-day, 90%) as they are."""
+    words = text.split(" ")
+    out = []
+    for i, w in enumerate(words):
+        if not w or not w[0].isalpha() or (w[0].isupper()) or (i and w.lower() in SMALL_WORDS):
+            out.append(w)
+        else:
+            out.append(w[0].upper() + w[1:])
+    return " ".join(out)
+
+
+def _title_tags(html_):
+    """Title-case the text of headings, table headers and tile labels."""
+    def fix(m):
+        inner = re.sub(r"(^|>)([^<]+)", lambda t: t.group(1) + title_case(t.group(2)), m.group(2))
+        return m.group(1) + inner + m.group(3)
+    for pat in (r"(<h[123][^>]*>)(.*?)(</h[123]>)", r"(<th[^>]*>)(.*?)(</th>)", r"(<div class=k>)(.*?)(</div>)",
+                r"(<span class=pv-tablabel>)(.*?)(</span>)"):
+        html_ = re.sub(pat, fix, html_, flags=re.S)
+    return html_
+
+
+TAB_NAMES = [(r"^Today", "Today's Portfolio"), (r"^Pod scoreboard", "Pods"), (r"^Forecast ranges", "Forecast Ranges"),
+             (r"^Walk-forward", "Backtest"), (r"^Is it real", "Validation"), (r"^Value at Risk", "Value at Risk"),
+             (r"^Order sheet", "Order Sheet"), (r"^What this is", "About"), (r"^Your portfolio and", "Comparison"),
+             (r"^Expected returns", "Views"), (r"^Trades", "Trades"), (r"^Limits", "Limits")]
+
+
+def tabify(head_html, body_html):
+    """Split the body at each <h2> into sub-tabs (one panel per section)."""
+    parts = re.split(r"<h2>(.*?)</h2>", body_html, flags=re.S)
+    pre, secs = parts[0], list(zip(parts[1::2], parts[2::2]))
+    bar, panels = [], []
+    for i, (h2, content) in enumerate(secs):
+        clean = re.sub(r"^\d+\.\s*", "", re.sub("<[^>]+>", "", h2)).strip()
+        label = next((lab for pat, lab in TAB_NAMES if re.search(pat, clean)), title_case(clean))
+        sel = "true" if i == 0 else "false"
+        bar.append(f"<button class=subtab role=tab aria-selected={sel} data-tab=t{i}><span class=pv-tablabel>{esc(label)}</span></button>")
+        panels.append(f"<section class=subpanel id=t{i}{'' if i == 0 else ' hidden'}><h2>{clean}</h2>{content}</section>")
+    return head_html + pre + "<nav class=subtabs role=tablist>" + "".join(bar) + "</nav>" + "".join(panels)
 
 
 def pct(v, d=1):
@@ -116,8 +191,8 @@ def build_report(b, path):
     st, ex, reg = b["stats"]["Engine"], b["exposure"], b["regime"]
     charts = []
     P = []
-    P.append(f"<h1>Pod Engine report</h1><p class=sub>As of {info['asof'].date()} · data: {esc(info['source'])} · "
-             f"profile: <b>{esc(cfg['profile'])}</b> · {info['n_assets']} of {info['n_universe']} assets tradable · "
+    P.append(f"<h1>Pod Engine Report</h1><p class=sub>As of {info['asof'].date()} · data: {esc(info['source'])} · "
+             f"profile: <b>{esc(pretty(cfg['profile']))}</b> · {info['n_assets']} of {info['n_universe']} assets tradable · "
              f"backtest {info['first_trade'].date()} to {info['asof'].date()} ({info['years']:.1f} years)</p>")
     if info["synthetic"]:
         P.append("<div class=banner><b>Demo mode: this report runs on simulated data.</b> The prices were generated by "
@@ -127,7 +202,7 @@ def build_report(b, path):
 
     # ------------------------------------------------------------ today
     P.append("<h2>1. Today's portfolio</h2>")
-    names = ["calm", "stress", "crisis"][:len(reg["probs"])] if len(reg["probs"]) <= 3 else [f"s{i}" for i in range(len(reg["probs"]))]
+    names = ["Calm", "Stress", "Crisis"][:len(reg["probs"])] if len(reg["probs"]) <= 3 else [f"State {i}" for i in range(len(reg["probs"]))]
     top = int(np.argmax(reg["probs"]))
     r5, r21 = mc["ranges"].get(5), mc["ranges"].get(21)
     rng_txt = lambda r: "–" if not r else f"{pct(r.get('adj90', r['raw90'])[0])} to {pct(r.get('adj90', r['raw90'])[1])}"
@@ -151,20 +226,20 @@ def build_report(b, path):
     cls = ex["by_cls"].sort_values("risk_share", ascending=False)
     P.append("<div class=grid2><div class=card><h3>Share of risk by asset class</h3><div class=chart id=c_cls></div>" +
              table(["Class", "Long", "Short", "Net", "Risk share"],
-                   [[esc(r.cls), pct(r.long), pct(r.short), pct(r.net), pct(r.risk_share)] for r in cls.itertuples()]) +
+                   [[esc(pretty(r.cls)), pct(r.long), pct(r.short), pct(r.net), pct(r.risk_share)] for r in cls.itertuples()]) +
              "</div><div class=card><h3>Share of risk by pod</h3><div class=chart id=c_pod></div>"
              "<p class=small>A pod's share is how much of the portfolio's volatility comes from its positions. "
              "Negative means the pod is currently hedging the others. 'Limits & band' is the part of the portfolio that "
              "differs from the pods' combined wish because an account limit was binding.</p></div></div>")
-    charts.append(("bar", "c_cls", {"labels": list(cls["cls"]), "values": _clean(cls["risk_share"]), "fmt": "pct"}))
-    charts.append(("bar", "c_pod", {"labels": b["res"].pod_names + ["limits & band"],
+    charts.append(("bar", "c_cls", {"labels": [pretty(c) for c in cls["cls"]], "values": _clean(cls["risk_share"]), "fmt": "pct"}))
+    charts.append(("bar", "c_pod", {"labels": [pretty(x) for x in b["res"].pod_names] + ["Limits & Band"],
                                     "values": _clean(list(ex["pod_share"]) + [ex["resid_share"]]), "fmt": "pct"}))
 
     a = ex["assets"].reindex(ex["assets"]["weight"].abs().sort_values(ascending=False).index)
     a = a[a["weight"].abs() > 1e-4]
     P.append("<div class=card><h3>Target positions</h3>" + table(
         ["Ticker", "Name", "Class", "Weight", "Forecast vol", "Risk share"],
-        [[esc(r.ticker), esc(r.name), esc(r.cls), pct(r.weight), pct(r.vol), pct(r.risk_share)] for r in a.itertuples()],
+        [[esc(r.ticker), esc(r.name), esc(pretty(r.cls)), pct(r.weight), pct(r.vol), pct(r.risk_share)] for r in a.itertuples()],
         left=(1, 2)) + "<p class=small>Weights are fractions of account equity; negative = short. They can sum to more "
         "than 100% because low-volatility assets (bonds) need leverage to matter.</p></div>")
 
@@ -175,25 +250,25 @@ def build_report(b, path):
              "edge is at or below zero, so it gets no capital for now.</p>")
     rows = []
     for r in b["pod_table"].itertuples():
-        dot = f"<span class=dot style='background:{STATE_DOT.get(r.state, 'var(--muted)')}'></span>{esc(r.state)}"
-        rows.append([esc(r.pod) + (" <span class=pill>experimental</span>" if r.experimental else ""),
+        dot = f"<span class=dot style='background:{STATE_DOT.get(r.state, 'var(--muted)')}'></span>{esc(pretty(r.state))}"
+        rows.append([esc(pretty(r.pod)) + (" <span class=pill>Experimental</span>" if r.experimental else ""),
                      num(r.sharpe_raw), num(r.prior), f"{num(r.sharpe_shrunk)} ± {num(r.sharpe_sd)}",
                      pct(-r.drawdown), pct(r.max_dd), dot, pct(b["gov_avg"].get(r.pod, 1.0), 0),
                      pct(b["contrib_ann"].get(r.pod, 0.0))])
     P.append("<div class=card>" + table(["Pod", "Backtest Sharpe", "Prior", "Shrunk Sharpe", "Current drawdown",
                                          "Worst drawdown", "Status", "Avg. risk switch", "Added per year"], rows) +
-             "<div class=chart id=c_pods></div>" + legend(list(b["pods_cum"].columns), COLORS) +
+             "<div class=chart id=c_pods></div>" + legend([pretty(c) for c in b["pods_cum"].columns], COLORS) +
              f"<p class=small>Chart: cumulative paper return of each pod at its own volatility target, after its own "
              f"trading and financing costs. 'Added per year' is the pod's share of the portfolio's actual P&L before "
              f"costs; the part caused by account limits, the trade band and price drift adds "
              f"{pct(b['contrib_ann'].get('limits & band', 0.0))} per year.</p>")
     for r in b["pod_table"].itertuples():
-        P.append(f"<p class=small><b>{esc(r.pod)}</b>: {esc(r.idea)} <i>Source: {esc(r.source)}.</i></p>")
+        P.append(f"<p class=small><b>{esc(pretty(r.pod))}</b>: {esc(r.idea)} <i>Source: {esc(r.source)}.</i></p>")
     P.append("</div>")
     pc = b["pods_cum"]
     charts.append(("line", "c_pods", {"x": [str(d.date()) for d in pc.index], "xshort": [str(d.year) for d in pc.index],
                                       "fmt": "pct", "h": 300,
-                                      "series": [{"name": c, "color": COLORS[i % 5], "y": _clean(pc[c])}
+                                      "series": [{"name": pretty(c), "color": COLORS[i % 5], "y": _clean(pc[c])}
                                                  for i, c in enumerate(pc.columns)]}))
 
     # ------------------------------------------------------------ ranges
@@ -264,7 +339,7 @@ def build_report(b, path):
     P.append("<div class=grid2><div class=card><h3>Calendar years</h3>" + table(
         ["Year"] + list(yr.columns), [[int(y)] + [pct(v) for v in row] for y, row in zip(yr.index, yr.to_numpy())]) + "</div>")
     P.append("<div class=card><h3>Worst drawdowns</h3>" + table(["Peak", "Trough", "Recovered", "Depth"], [
-        [r["peak"].date(), r["trough"].date(), r["recovered"].date() if r["recovered"] is not None else "not yet", pct(r["depth"])]
+        [r["peak"].date(), r["trough"].date(), r["recovered"].date() if r["recovered"] is not None else "Not yet", pct(r["depth"])]
         for r in b["worst_dd"]]))
     if info["synthetic"]:
         P.append("<h3>Historical stress episodes</h3><p class=small>Not shown in demo mode: simulated prices have no real "
@@ -302,7 +377,7 @@ def build_report(b, path):
              "When all the variants below score within noise of each other, a high value is expected and the lesson is to "
              "keep the defaults rather than switch to whichever variant happened to win.</p>")
     if len(val["ablation"]) > 1:
-        rows = [[esc(r["variant"]), num(r["sharpe"]), ("" if "d_sharpe" not in r else f"{r['d_sharpe']:+.2f}"), pct(r["vol"]),
+        rows = [[esc(pretty(r["variant"])), num(r["sharpe"]), ("" if "d_sharpe" not in r else f"{r['d_sharpe']:+.2f}"), pct(r["vol"]),
                  pct(r["cagr"]), pct(r["max_dd"]), f"{r['turnover']:.1f}x"] for r in val["ablation"]]
         P.append("<div class=card><h3>Does each layer earn its place?</h3>" + table(
             ["Variant", "Sharpe", "vs baseline", "Volatility", "Return / yr", "Max drawdown", "Turnover"], rows) +
@@ -345,9 +420,12 @@ def build_report(b, path):
 
     calls = "\n".join(f"{'lineChart' if kind == 'line' else 'barChart'}({json.dumps(cid)},{json.dumps(data)});"
                       for kind, cid, data in charts)
+    body = "".join(P)
+    cut = body.index("<h2>")
+    main_html = tabify(body[:cut], body[cut:])
     doc = (f"<!DOCTYPE html><html lang=en><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
            f"<title>Pod Engine report {info['asof'].date()}</title><style>{CSS}</style></head><body><main>"
-           + "".join(P) + f"<p class=small>Generated in {info['elapsed']:.0f}s.</p></main><script>{JS}\n{calls}</script></body></html>")
+           + _title_tags(main_html) + f"<p class=small>Generated in {info['elapsed']:.0f}s.</p></main><script>{JS}\n{calls}</script></body></html>")
     with open(path, "w", encoding="utf-8") as fh:
         fh.write(doc)
     return path
@@ -448,9 +526,9 @@ def var_section(v, charts, n):
              "that gained on those days.</p></div>")
     charts.append(("bar", "c_ces", {"labels": [v["tickers"][i] for i in order], "values": _clean(v["comp_es"][order]),
                                     "fmt": "pct", "left": 70}))
-    rows = [[esc(nm), pct(x, 2), pct(x / v["es_total"] if v["es_total"] else float("nan"), 0)]
+    rows = [[esc(pretty(nm)), pct(x, 2), pct(x / v["es_total"] if v["es_total"] else float("nan"), 0)]
             for nm, x in zip(v["pod_names"], v["pod_es"])]
-    rows.append(["limits & band", pct(v["pod_resid"], 2), pct(v["pod_resid"] / v["es_total"] if v["es_total"] else float("nan"), 0)])
+    rows.append(["Limits & Band", pct(v["pod_resid"], 2), pct(v["pod_resid"] / v["es_total"] if v["es_total"] else float("nan"), 0)])
     P.append("<div class=card><h3>Who contributes to ES (by pod)</h3>" + table(["Pod", "ES contribution", "Share"], rows) +
              "</div></div>")
     bt = v["backtest"]
@@ -474,8 +552,8 @@ def var_section(v, charts, n):
 
 def build_opt_report(r, cfg, path, info, orders=None):
     charts = []
-    P = [f"<h1>Portfolio optimiser</h1><p class=sub>As of {r['asof'].date()} · data: {esc(info['source'])} · profile: "
-         f"<b>{esc(cfg['profile'])}</b> · account equity ${r['equity']:,.0f} · target volatility "
+    P = [f"<h1>Portfolio Optimizer</h1><p class=sub>As of {r['asof'].date()} · data: {esc(info['source'])} · profile: "
+         f"<b>{esc(pretty(cfg['profile']))}</b> · account equity ${r['equity']:,.0f} · target volatility "
          f"{pct(r['target_vol'])}</p>"]
     if info.get("synthetic"):
         P.append("<div class=banner><b>Demo mode: simulated prices.</b> Every number below exercises the code; none "
@@ -493,7 +571,7 @@ def build_opt_report(r, cfg, path, info, orders=None):
            "1-month 90% range", "Largest risk share", "Diversification ratio", "Gross", "Net", "Turnover", "Trading cost"]
     rows = []
     for q in ports:
-        rows.append([f"<b>{esc(q['name'])}</b>" + (f"<br><span class=small>{esc(q['note'])}</span>" if q["note"] else ""),
+        rows.append([f"<b>{esc(title_case(q['name']))}</b>" + (f"<br><span class=small>{esc(q['note'])}</span>" if q["note"] else ""),
                      pct(q["exp"], 2), pct(q["vol"]), num(q["sharpe"]), pct(q["var99"], 2), pct(q["es975"], 2),
                      f"{pct(q['range90'][0])} to {pct(q['range90'][1])}", pct(q["max_share"], 0), num(q["div_ratio"]),
                      f"{q['gross']:.2f}x", f"{q['net']:+.2f}x", pct(q["turnover"], 0), pct(q["cost"], 2)])
@@ -506,11 +584,11 @@ def build_opt_report(r, cfg, path, info, orders=None):
 
     # ---------------------------------------------------------- weights
     names = r["tickers"]
-    hdr = ["Ticker", "Name"] + [q["name"] for q in ports]
+    hdr = ["Ticker", "Name"] + [title_case(q["name"]) for q in ports]
     rows = [[esc(t), esc(nm)] + [pct(q["w"][i]) for q in ports] for i, (t, nm) in enumerate(zip(names, r["names"]))]
     rows.append(["", "<b>Cash (rest)</b>", *[pct(1 - q["net"]) for q in ports]])
     P.append("<div class=card><h3>Weights (share of equity)</h3>" + table(hdr, rows, left=(1,)) + "</div>")
-    hdr = ["Ticker"] + [q["name"] for q in ports]
+    hdr = ["Ticker"] + [title_case(q["name"]) for q in ports]
     rows = [[esc(t)] + [pct(q["risk_share"][i], 0) for q in ports] for i, t in enumerate(names)]
     P.append("<div class=card><h3>Share of risk by holding</h3>" + table(hdr, rows) +
              "<p class=small>Each column sums to 100%. A negative share means the holding currently offsets the others' risk.</p></div>")
@@ -561,9 +639,11 @@ def build_opt_report(r, cfg, path, info, orders=None):
              "as a forecast. This is a research tool, not investment advice.</p></div>")
     calls = "\n".join(f"{'lineChart' if kind == 'line' else 'barChart'}({json.dumps(cid)},{json.dumps(data)});"
                       for kind, cid, data in charts)
+    body = "".join(P)
+    cut = body.index("<h2>")
     doc = (f"<!DOCTYPE html><html lang=en><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
            f"<title>Portfolio optimiser {r['asof'].date()}</title><style>{CSS}</style></head><body><main>"
-           + "".join(P) + f"</main><script>{JS}\n{calls}</script></body></html>")
+           + _title_tags(tabify(body[:cut], body[cut:])) + f"</main><script>{JS}\n{calls}</script></body></html>")
     with open(path, "w", encoding="utf-8") as fh:
         fh.write(doc)
     return path

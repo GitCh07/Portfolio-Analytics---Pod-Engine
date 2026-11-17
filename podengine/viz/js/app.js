@@ -5,11 +5,11 @@
 const STORE_KEY = "podengine.viz.animations";
 
 const TABS = [
-  { id: "report", title: "Engine report", kind: "report", src: "reports/report.html",
+  { id: "report", title: "Engine Report", kind: "report", src: "reports/report.html",
     hint: "python -m podengine run --viz" },
   { id: "optimizer", title: "Optimizer", kind: "report", src: "reports/optimizer.html",
     hint: "python -m podengine optimize --positions your.csv --viz" },
-  { id: "fan", title: "Forecast fan", kind: "view" },
+  { id: "fan", title: "Forecast Fan", kind: "view" },
   { id: "calibration", title: "Calibration", kind: "view" },
   { id: "regimes", title: "Regimes", kind: "view" },
   { id: "frontier", title: "Frontier", kind: "view" },
@@ -77,7 +77,8 @@ export function init(root, opts = {}) {
 
   getJSON(base + "data/meta.json").then((m) => {
     state.meta = m;
-    meta.textContent = `${m.synthetic ? "DEMO DATA · " : ""}${m.source} · profile ${m.profile} · as of ${m.asof}`;
+    const cap = (x) => String(x).charAt(0).toUpperCase() + String(x).slice(1);
+    meta.textContent = `${m.synthetic ? "Demo data · " : ""}${m.source} · ${cap(m.profile)} profile · as of ${m.asof}`;
   }).catch(() => { meta.textContent = "no exported data yet: run python -m podengine viz"; });
 
   // ---------------------------------------------------------------- animations toggle
@@ -113,10 +114,102 @@ export function init(root, opts = {}) {
     const panel = state.panels[tab.id];
     if (panel.dataset.ready) return;
     panel.dataset.ready = "1";
+    panel.classList.add("pv-full");
+    const holder = h("div");
+    if (tab.id === "optimizer") panel.append(optimizerForm(() => loadFrame(tab, holder, true)));
+    panel.append(holder);
+    await loadFrame(tab, holder, false);
+  }
+
+  async function loadFrame(tab, holder, fresh) {
     const r = await fetch(base + tab.src, { method: "HEAD", cache: "no-store" }).catch(() => null);
-    if (r && r.ok) panel.append(h("iframe", { class: "pv-frame", src: base + tab.src, title: tab.title }));
-    else panel.append(h("div", { class: "pv-card pv-msg" },
-      h("p", { text: `${tab.title} not found in this folder yet.` }), h("p", {}, "Create it with ", h("code", { text: tab.hint }))));
+    holder.textContent = "";
+    if (r && r.ok) {
+      holder.append(h("iframe", { class: "pv-frame", src: base + tab.src + (fresh ? "?t=" + Date.now() : ""), title: tab.title }));
+    } else {
+      holder.append(h("div", { class: "pv-card pv-msg", style: "margin:16px 20px" },
+        h("p", { text: tab.id === "optimizer" ? "No optimizer report yet. Enter your holdings above and press Optimize."
+          : `${tab.title} not found in this folder yet.` }),
+        tab.id === "optimizer" ? null : h("p", {}, "Create it with ", h("code", { text: tab.hint }))));
+    }
+  }
+
+  // ---------------------------------------------------------------- optimizer input form
+  function optimizerForm(onDone) {
+    const field = (label, el) => h("label", { class: "pv-field" }, h("span", { text: label }), el);
+    const holdings = h("textarea", { spellcheck: "false", placeholder: "SPY, 60\nQQQ, 40\nTLT, 90\nGLD, 15\nCASH, 5000" });
+    const kind = h("select", {}, h("option", { value: "shares", text: "Shares" }),
+      h("option", { value: "value", text: "Dollar values" }), h("option", { value: "weight", text: "Weights (25% or 0.25)" }));
+    const file = h("input", { type: "file", accept: ".csv,.txt" });
+    const profile = h("select", {}, h("option", { value: "unconstrained", text: "Unconstrained: long/short, up to 6x (futures)" }),
+      h("option", { value: "margin", text: "Margin: long/short, up to 2x" }), h("option", { value: "cash", text: "Cash: long only, no leverage" }));
+    const vol = h("input", { type: "number", min: "0.5", max: "60", step: "0.5", placeholder: "Same as now" });
+    const turn = h("input", { type: "number", min: "1", max: "500", step: "1", placeholder: "No limit" });
+    const cap = h("input", { type: "number", min: "100", step: "100", placeholder: "From your holdings" });
+    const views = h("textarea", { spellcheck: "false", placeholder: "TLT, 4%, 60%\nQQQ - SPY, -3%, 50%" });
+    views.style.minHeight = "90px";
+    const go = h("button", { class: "pv-btn pv-primary", type: "submit", text: "Optimize" });
+    const status = h("span", { class: "pv-status" });
+    const note = h("p", { class: "pv-note" });
+    const form = h("form", {},
+      h("div", { class: "pv-grid" },
+        field("Holdings: one per line, ticker then amount (CASH line for cash)", holdings),
+        h("div", { style: "display:flex;flex-direction:column;gap:12px" },
+          field("Amounts are", kind), field("Or load a CSV (ticker plus shares, value or weight)", file),
+          field("Account type", profile)),
+        h("div", { style: "display:flex;flex-direction:column;gap:12px" },
+          field("Target volatility, % a year (optional)", vol), field("Maximum turnover, % (optional)", turn),
+          field("Account size, $ (optional; needed for weights)", cap)),
+        field("Views (optional): ticker or LONG - SHORT, return a year, confidence", views)),
+      h("div", { class: "pv-controls" }, go, status), note);
+    const box = h("div", { class: "pv-form" }, h("details", { open: "" },
+      h("summary", { text: "Optimize Your Portfolio" }), form));
+
+    file.addEventListener("change", async () => {
+      const f = file.files && file.files[0];
+      if (!f) return;
+      const rows = (await f.text()).split(/\r?\n/).map((l) => l.split(/[,;\t]/).map((x) => x.trim())).filter((r) => r[0]);
+      const head = rows[0].map((x) => x.toLowerCase());
+      const col = ["shares", "value", "weight"].find((k) => head.includes(k));
+      const body = col || head[0] === "ticker" ? rows.slice(1) : rows;
+      const j = col ? head.indexOf(col) : 1;
+      if (col) kind.value = col;
+      holdings.value = body.filter((r) => r[j] !== undefined).map((r) => `${r[0]}, ${r[j]}`).join("\n");
+    });
+
+    const controls = [holdings, kind, file, profile, vol, turn, cap, views, go];
+    fetch(base + "api/status", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).catch(() => null).then((s) => {
+      if (s && s.ok) {
+        note.textContent = s.demo ? "Running in demo mode: prices are simulated, so results say nothing about real markets."
+          : "Runs on your computer with free Yahoo Finance prices. Takes about 10 to 40 seconds.";
+      } else {
+        controls.forEach((c) => (c.disabled = true));
+        note.append("This copy is read-only. To optimize your own holdings, run ",
+          h("code", { text: "python -m podengine serve" }), " on your computer and open the address it prints. Your holdings never leave your computer.");
+      }
+    });
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      go.disabled = true;
+      status.className = "pv-status";
+      status.textContent = "Optimizing...";
+      try {
+        const r = await fetch(base + "api/optimize", { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ holdings: holdings.value, kind: kind.value, profile: profile.value, vol_target: vol.value,
+            max_turnover: turn.value, capital: cap.value, views: views.value }) });
+        const out = await r.json();
+        if (!out.ok) throw new Error(out.error || "failed");
+        status.textContent = `Done: account equity $${Math.round(out.equity).toLocaleString()}. Report updated below.`;
+        await onDone();
+      } catch (err) {
+        status.className = "pv-status pv-err";
+        status.textContent = "Could not optimize: " + err.message;
+      } finally {
+        go.disabled = false;
+      }
+    });
+    return box;
   }
 
   async function openView(id) {
@@ -155,7 +248,7 @@ export function init(root, opts = {}) {
       h("p", { class: "pv-p", text: def.blurb }),
       def.legend ? def.legend(h) : null,
       canvas,
-      h("div", { class: "pv-controls" }, play, speed, scrub, date),
+      h("div", { class: "pv-controls" }, def.animated === false ? null : play, def.animated === false ? null : speed, scrub, date),
       extra));
 
     v.redraw = () => {
@@ -167,6 +260,7 @@ export function init(root, opts = {}) {
       if (def.below) def.below(extra, data, v.pos, h);
     };
     v.syncControls = () => {
+      if (def.animated === false) return;
       play.disabled = !state.animations;
       play.title = state.animations ? "" : "Turn animations on to play";
       if (!state.animations) v.playing = false;

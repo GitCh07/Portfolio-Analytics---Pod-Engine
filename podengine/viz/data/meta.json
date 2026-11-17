@@ -1,6 +1,6 @@
 {
  "schema_version": 1,
- "generated": "2026-11-17T20:18:38",
+ "generated": "2026-11-17T21:01:48",
  "source": "SYNTHETIC DEMO DATA",
  "synthetic": true,
  "profile": "unconstrained",
@@ -13,5 +13,8 @@
   "frontier.json",
   "regimes.json"
  ],
- "reports": []
+ "reports": [
+  "report.html",
+  "optimizer.html"
+ ]
 }

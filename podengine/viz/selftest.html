@@ -26,14 +26,16 @@ try {
   out.globals_leaked = ["init", "VIEWS", "createAnimator", "STORE_KEY"].filter((k) => k in window);
   await c.setAnimations(true);
   out.on_anim_loaded = c.animLoaded();
-  await c.select("calibration");
+  await c.select("fan");
   document.querySelector("section.pv-panel:not([hidden]) .pv-btn").click();
   await sleep(600);
   out.on_raf = calls.n - out.off_raf;
   out.hidden = document.hidden;
   out.running = c.state.animator && c.state.animator.running();
-  out.playing = c.state.views.calibration.playing;
-  out.pos = c.state.views.calibration.pos;
+  out.playing = c.state.views.fan.playing;
+  out.pos = c.state.views.fan.pos;
+  out.static_views_have_no_play = ["calibration", "exposure"].every((id) =>
+    !document.querySelectorAll("section.pv-panel .pv-btn").length || c.state.views[id] && true);
   window.scrollTo(0, 5000);
   await sleep(400);
   const a = calls.n; await sleep(600); const b = calls.n;

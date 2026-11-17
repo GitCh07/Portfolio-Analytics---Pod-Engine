@@ -121,24 +121,10 @@ def main(argv=None):
     return 0
 
 
-DEMO_POSITIONS = pd.DataFrame({"ticker": ["SPY", "QQQ", "XLK", "EFA", "TLT", "GLD", "CASH"],
-                               "value": [42000, 22000, 10000, 8000, 9000, 4000, 5000]})
-DEMO_VIEWS = [{"label": "Long bonds beat cash by 4%", "assets": {"TLT": 1}, "return": 0.04, "confidence": 0.6},
-              {"label": "Nasdaq lags the S&P by 3%", "assets": {"QQQ": 1, "SPY": -1}, "return": -0.03, "confidence": 0.5}]
-
-
 def run_optimize(a):
-    import json
-    from .backtest import Prep
-    from .config import load_config
-    from .data import fetch_yahoo, load_csv, make_synthetic
-    from .optimizer import optimize_holdings, positions_to_weights, read_positions, read_views
-    from .report import build_opt_report
+    from .optimizer import read_positions, read_views
+    from .optrun import DEMO_POSITIONS, DEMO_VIEWS, optimize_and_report
 
-    cfg = load_config(a.config, profile=a.profile, vol_target=None)
-    if not (a.config and "min_history" in json.load(open(a.config))):
-        cfg["min_history"] = 252                    # one year of history is enough to hold an asset
-    add = [t.strip().upper() for t in a.add.split(",")] if a.add else []
     if a.positions:
         pos, kind = read_positions(a.positions)
     elif a.demo:
@@ -149,78 +135,26 @@ def run_optimize(a):
         views = read_views(a.views)
     else:
         views = DEMO_VIEWS if (a.demo and not a.positions) else None
-    held = [t for t in pos["ticker"] if t != "CASH"]
-    print("Loading data ...")
-    if a.demo:
-        md = make_synthetic(seed=11)
-    elif a.prices:
-        md = load_csv(a.prices, a.meta)
-    else:
-        want = list(dict.fromkeys(held + add + ["SPY"]))
-        md = fetch_yahoo(want, a.start, os.path.join(a.cache, "holdings"), a.refresh)
-    if "SPY" in md.tickers:
-        cfg["regime_asset"] = "SPY"
-    prices = {t: float(md.close[t].dropna().iloc[-1]) for t in md.tickers if md.close[t].notna().any()}
-    w_now, equity, cash_w, notes = positions_to_weights(pos, kind, prices, a.capital)
-    print(f"  {len(w_now)} holdings, equity ${equity:,.0f}, cash {cash_w:.1%}")
-    prep = Prep(md, cfg, verbose=True)
-    r = optimize_holdings(md, cfg, prep, w_now, equity, views, a.vol_target, a.max_turnover,
-                          a.tau, a.prior_sharpe, extra=add)
-    r["notes"] = notes + r["notes"]
-
-    rows = []
-    for q in r["portfolios"]:
-        for t, w0, w1 in zip(r["tickers"], r["w0"], q["w"]):
-            px = r["prices"][t]
-            rows.append({"portfolio": q["name"], "ticker": t, "w_now": w0, "w_new": w1, "price": px,
-                         "shares_now": w0 * equity / px, "shares_new": w1 * equity / px,
-                         "trade": round(w1 * equity / px) - round(w0 * equity / px)})
-    trades = pd.DataFrame(rows)
-    os.makedirs(a.out, exist_ok=True)
-    trades.to_csv(os.path.join(a.out, "optimizer_trades.csv"), index=False)
-    bl = trades[trades["portfolio"] == "Black-Litterman"].copy()
-    bl = bl[(bl["trade"] != 0) | (bl["w_now"].abs() > 1e-6)]
-    path = build_opt_report(r, cfg, os.path.join(a.out, "optimizer.html"),
-                            {"source": md.source, "synthetic": md.synthetic}, bl)
-    if a.viz:
-        import shutil
-        from .vizexport import VIZ_DIR
-        rdir = os.path.join(a.viz_dir or VIZ_DIR, "reports")
-        os.makedirs(rdir, exist_ok=True)
-        shutil.copy2(path, os.path.join(rdir, "optimizer.html"))
+    out = optimize_and_report(pos, kind, views, profile=a.profile, vol_target=a.vol_target,
+                              max_turnover=a.max_turnover, capital=a.capital,
+                              add=a.add.split(",") if a.add else (), tau=a.tau, prior_sharpe=a.prior_sharpe,
+                              demo=a.demo, prices_csv=a.prices, meta=a.meta, start=a.start, cache=a.cache,
+                              refresh=a.refresh, config=a.config, out_dir=a.out, viz_dir=a.viz_dir,
+                              copy_to_viz=a.viz)
     print("\n" + "=" * 64)
-    if md.synthetic:
+    if out["synthetic"]:
         print(" DEMO ON SIMULATED DATA - numbers say nothing about real markets")
-    for q in r["portfolios"]:
+    for q in out["portfolios"]:
         print(f" {q['name']:17s} vol {q['vol']:6.1%}  VaR99 {q['var99']:5.2%}  ES {q['es975']:5.2%}  "
               f"model Sharpe {q['sharpe']:5.2f}  turnover {q['turnover']:5.0%}")
-    print(f" Report: {os.path.abspath(path)}")
+    print(f" Report: {os.path.abspath(out['path'])}")
     print("=" * 64)
     return 0
 
 
 def run_serve(a):
-    """Serve the viewer folder on localhost (browsers block fetch() from file://)."""
-    import functools
-    import http.server
-    import webbrowser
-    from .vizexport import VIZ_DIR
-    root = a.viz_dir or VIZ_DIR
-    if not os.path.exists(os.path.join(root, "data", "meta.json")):
-        print("No viewer data yet. Run `python -m podengine viz` (or `run --viz`) first.")
-    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=root)
-    srv = http.server.ThreadingHTTPServer(("127.0.0.1", a.port), handler)
-    url = f"http://127.0.0.1:{a.port}/"
-    print(f"Serving {root} at {url}  (Ctrl+C to stop)")
-    if not a.no_browser:
-        webbrowser.open(url)
-    try:
-        srv.serve_forever()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        srv.server_close()
-    return 0
+    from .server import serve
+    return serve(viz_dir=a.viz_dir, port=a.port, open_browser=not a.no_browser, demo=a.demo, cache=a.cache)
 
 
 if __name__ == "__main__":

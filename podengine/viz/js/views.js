@@ -6,6 +6,9 @@
 const pct = (v, d = 1) => (v == null || !isFinite(v) ? "–" : (v * 100).toFixed(d) + "%");
 const lerp = (a, b, t) => a + (b - a) * t;
 const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
+const NAMES = { calm: "Calm", stress: "Stress", crisis: "Crisis", single: "Single", unconditional: "Unconditional",
+  equity: "Equity", rates: "Rates", credit: "Credit", real: "Real Assets", fx: "FX", custom: "Custom" };
+const pretty = (n) => NAMES[n] || (String(n).charAt(0).toUpperCase() + String(n).slice(1).replace(/_/g, " "));
 
 function niceTicks(lo, hi, n = 5) {
   const span = hi - lo || 1;
@@ -69,7 +72,7 @@ function legend(h, items) {
 
 // ===================================================================== 1. forecast fan
 const fan = {
-  file: "fan.json", title: "Forecast fan", staticFrac: 1, rate: 0.6,
+  file: "fan.json", title: "Forecast Fan", staticFrac: 1, rate: 0.6,
   blurb: "At each forecast date the Monte Carlo simulates the engine's target weights for the next month. The bands " +
     "are its 90% and 50% ranges and its median; the orange line is what those same weights actually did. " +
     "Playing replays each month's outcome inside its forecast, then re-forecasts at the next date.",
@@ -104,11 +107,11 @@ const fan = {
 
 // ===================================================================== 2. calibration (PIT)
 const calibration = {
-  file: "calibration.json", title: "Calibration: where outcomes landed in their forecasts", staticFrac: 0, rate: 4,
+  file: "calibration.json", title: "Calibration: Where Outcomes Landed in Their Forecasts", staticFrac: 0, rate: 4, animated: false,
   blurb: "For every past forecast, the percentile at which the real outcome landed inside the simulated distribution " +
     "(the probability integral transform, PIT). If the forecasts are honest, outcomes land evenly across percentiles " +
     "and the bars sit on the dashed uniform line. Bars piling up at both ends mean the forecast tails were too thin; " +
-    "an empty middle-heavy shape means they were too fat. The histogram builds up as the replay advances.",
+    "an empty middle-heavy shape means they were too fat. Move the slider to see the picture as it stood at any past date.",
   labels: (d) => [d.label, `${d.horizon_days}-day forecasts, non-overlapping`, "Gross of costs"],
   legend: (h) => legend(h, [["Middle 80% of percentiles", "var(--pv-s1)"], ["Outer 10% each side", "var(--pv-s2)"],
     ["Uniform (perfect calibration)", "var(--pv-text2)", true]]),
@@ -163,7 +166,7 @@ const calibration = {
 
 // ===================================================================== 3. regime ridgeline
 const regimes = {
-  file: "regimes.json", title: "Regime ridgeline", staticFrac: 0, rate: 1.5,
+  file: "regimes.json", title: "Regime Ridgeline", staticFrac: 0, rate: 1.5,
   blurb: "The engine's portfolio, simulated forward one month starting in each market regime (then free to switch " +
     "regimes as the fitted model allows). The mint ridge is the regime the model thinks we are in now; the dashed gold " +
     "line is the unconditional distribution, starting from the long-run mix of regimes. Playing moves through history " +
@@ -179,7 +182,7 @@ const regimes = {
     const b0 = d.frames[Math.min(i + 1, d.frames.length - 1)];
     const b = b0.ridges.length === a.ridges.length ? b0 : a;
     const mix = (x, y) => x.map((v, k) => lerp(v, y[k], frac));
-    const ridges = a.ridges.map((r, k) => ({ name: r.name, dens: mix(r.density, b.ridges[k].density) }));
+    const ridges = a.ridges.map((r, k) => ({ name: pretty(r.name), dens: mix(r.density, b.ridges[k].density) }));
     const unc = mix(a.unconditional.density, b.unconditional.density);
     const probs = mix(a.probs, b.probs);
     const cur = probs.indexOf(Math.max(...probs));
@@ -217,14 +220,14 @@ const regimes = {
     if (!f) return;
     el.textContent = "";
     const parts = f.ridges.concat([f.unconditional]).map((r) =>
-      `${r.name}: median ${pct(r.q[1])}, 5th to 95th percentile ${pct(r.q[0])} to ${pct(r.q[2])}`);
+      `${pretty(r.name)}: median ${pct(r.q[1])}, 5th to 95th percentile ${pct(r.q[0])} to ${pct(r.q[2])}`);
     el.append(h("p", { class: "pv-p", text: parts.join(" · ") }));
   },
 };
 
 // ===================================================================== 4. rolling efficient frontier
 const frontier = {
-  file: "frontier.json", title: "Rolling efficient frontier", staticFrac: 0, rate: 1.5,
+  file: "frontier.json", title: "Rolling Efficient Frontier", staticFrac: 0, rate: 1.5,
   blurb: "Each date: the highest return achievable at each volatility from the assets then tradable, using the " +
     "trailing year of data, Ledoit-Wolf shrinkage covariance, Bayes-Stein shrunk average returns and the engine's own " +
     "leverage, position and shorting limits. The frontier is built from the same past data it is judged on, so it is " +
@@ -282,10 +285,10 @@ const frontier = {
 // ===================================================================== 5. exposure
 const CLASS_COLORS = ["s1", "s2", "s3", "s4", "s5"];
 const exposure = {
-  file: "exposure.json", title: "Exposure over time", staticFrac: 0, rate: 30,
+  file: "exposure.json", title: "Exposure Over Time", staticFrac: 0, rate: 30, animated: false,
   blurb: "The engine's positions by asset class as a share of equity: longs stacked above zero, shorts below. " +
     "The solid line is gross exposure (long plus short, which is also the leverage multiple), the dashed line net " +
-    "exposure, and the red dashed line the account's gross cap.",
+    "exposure, and the red dashed line the account's gross cap. Move the slider to read the book on any date.",
   labels: (d) => [d.label, "Weights, not returns"],
   legend: null,
   count: (d) => d.dates.length,
@@ -324,9 +327,9 @@ const exposure = {
   },
   below(el, d, i, h) {
     el.textContent = "";
-    const items = d.classes.map((c, k) => [`${c}: long ${pct(d.long[c][i], 0)}, short ${pct(d.short[c][i], 0)}`,
+    const items = d.classes.map((c, k) => [`${pretty(c)}: long ${pct(d.long[c][i], 0)}, short ${pct(d.short[c][i], 0)}`,
       `var(--pv-${CLASS_COLORS[k % CLASS_COLORS.length]})`]);
-    items.push(["Gross (leverage)", "var(--pv-text)"], ["Net", "var(--pv-text2)", true], ["Gross cap", "var(--pv-crit)", true]);
+    items.push(["Gross (Leverage)", "var(--pv-text)"], ["Net", "var(--pv-text2)", true], ["Gross Cap", "var(--pv-crit)", true]);
     el.append(legend(h, items));
   },
 };
