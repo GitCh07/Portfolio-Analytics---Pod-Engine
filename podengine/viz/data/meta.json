@@ -1,10 +1,10 @@
 {
  "schema_version": 1,
- "generated": "2026-11-18T03:48:57",
+ "generated": "2026-11-19T03:43:44",
  "source": "Yahoo Finance",
  "synthetic": false,
  "profile": "unconstrained",
- "asof": "2026-11-17",
+ "asof": "2026-11-18",
  "label": "Simulated / historical replay \u00b7 not a forecast",
  "files": [
   "calibration.json",
