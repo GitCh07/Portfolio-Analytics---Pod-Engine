@@ -1,52 +1,59 @@
 <!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><title>viewer self-test</title><link rel="stylesheet" href="viz.css"></head>
 <body>
-<div id="t"></div><div style="height:6000px"></div><pre id="result">pending</pre>
+<div id="t"></div><pre id="result">pending</pre>
 <script type="module">
-// Test harness only (used by tests/test_viz.py). Counts requestAnimationFrame calls and
-// checks the animations toggle, lazy loading and the off-screen pause.
+// Test harness only (used by tests/test_viz.py). Checks the draw-in-once motion rules:
+// charts animate when their data arrives, then go still; nothing loops; Motion off and
+// reduced motion stop all movement; the final frame is the same chart either way.
 const calls = { n: 0 };
 const orig = window.requestAnimationFrame.bind(window);
 window.requestAnimationFrame = (cb) => { calls.n++; return orig(cb); };
-try { localStorage.setItem("podengine.viz.animations", "off"); } catch (e) {}
+try { localStorage.removeItem("motion"); } catch (e) {}
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const out = {};
+const IDS = ["fan", "calibration", "regimes", "frontier", "exposure"];
+const out = { reduced: matchMedia("(prefers-reduced-motion: reduce)").matches };
+let c;
+const panel = (id) => c.state.panels[id];
+const running = (el) => el.getAnimations({ subtree: true }).filter((a) => a.playState === "running");
+// how long the longest animation in `el` lasts, delay included (ms)
+const longest = (el) => Math.max(0, ...el.getAnimations({ subtree: true }).map((a) => a.effect.getComputedTiming().endTime || 0));
+const scrub = (id, type, v) => { const s = panel(id).querySelector("input[type=range]");
+  s.value = String(v); s.dispatchEvent(new Event(type, { bubbles: true })); };
 try {
   const { init } = await import("./js/app.js");
-  const c = init(document.getElementById("t"));
-  for (const id of ["fan", "calibration", "regimes", "frontier", "exposure"]) { await c.select(id); await sleep(250); }
-  await sleep(500);
-  const res = () => performance.getEntriesByType("resource").map((e) => e.name);
-  out.off_raf = calls.n;
-  out.off_anim_loaded = c.animLoaded();
-  out.off_anim_fetched = res().filter((n) => /anim\.js/.test(n)).length;
-  out.off_views_loaded = c.viewsLoaded();
-  out.off_play_disabled = [...document.querySelectorAll(".pv-panel .pv-btn")].every((b) => b.disabled);
-  out.canvases_drawn = [...document.querySelectorAll("canvas")].filter((cv) => cv.width > 0).length;
-  out.globals_leaked = ["init", "VIEWS", "createAnimator", "STORE_KEY"].filter((k) => k in window);
-  await c.setAnimations(true);
-  out.on_anim_loaded = c.animLoaded();
-  await c.select("fan");
-  document.querySelector("section.pv-panel:not([hidden]) .pv-btn").click();
-  await sleep(600);
-  out.on_raf = calls.n - out.off_raf;
-  out.hidden = document.hidden;
-  out.running = c.state.animator && c.state.animator.running();
-  out.playing = c.state.views.fan.playing;
-  out.pos = c.state.views.fan.pos;
-  out.static_views_have_no_play = ["calibration", "exposure"].every((id) =>
-    !document.querySelectorAll("section.pv-panel .pv-btn").length || c.state.views[id] && true);
-  window.scrollTo(0, 5000);
-  await sleep(400);
-  const a = calls.n; await sleep(600); const b = calls.n;
-  out.offscreen_raf = b - a;
-  window.scrollTo(0, 0);
-  await sleep(500);
-  out.resumed_raf = calls.n - b;
-  await c.setAnimations(false);
-  const d0 = calls.n; await sleep(600);
-  out.after_off_raf = calls.n - d0;
-  out.pref_saved = localStorage.getItem("podengine.viz.animations");
+  c = init(document.getElementById("t"));
+  out.default_on = document.documentElement.dataset.motion === "on";
+  out.draw_on_show = {}; out.svg_drawn = {}; out.longest = {};
+  for (const id of IDS) {
+    await c.select(id); await sleep(120);
+    out.draw_on_show[id] = running(panel(id)).length;
+    out.svg_drawn[id] = panel(id).querySelectorAll(".pv-chart svg path, .pv-chart svg rect, .pv-chart svg circle").length;
+    out.longest[id] = longest(panel(id));
+  }
+  await sleep(3000);                                          // longest draw-in is under DRAW_MS
+  out.settled = IDS.map((id) => running(panel(id)).length).reduce((a, b) => a + b, 0);
+  const r0 = calls.n; await sleep(1000); out.idle_raf = calls.n - r0;  // nothing ticks while idle
+  await c.select("fan"); await sleep(120);
+  out.revisit_replays = running(panel("fan")).length;         // going back to a tab does not replay
+  const last = c.state.views.fan.n - 1;
+  scrub("fan", "input", last - 3); await sleep(60);
+  out.drag_animates = running(panel("fan")).length;           // dragging shows the frame directly
+  scrub("fan", "change", last - 5); await sleep(60);
+  out.change_replays = running(panel("fan")).length;          // a new date is new data: draw once
+  await sleep(3000);
+  out.change_settles = running(panel("fan")).length;
+  const markup = (id) => panel(id).querySelector(".pv-chart").innerHTML.replace(/ class="[^"]*"/g, "").replace(/ style="[^"]*"/g, "");
+  const onMarkup = markup("fan");
+  c.setMotion(false);
+  scrub("fan", "change", last); scrub("fan", "input", last - 1); await sleep(60);
+  scrub("fan", "change", last - 5); await sleep(60);
+  out.off_animates = running(document.body).length;
+  out.same_chart = markup("fan").length > 0 && markup("fan") === onMarkup;
+  out.pref_saved = localStorage.getItem("motion");
+  out.attr_off = document.documentElement.dataset.motion;
+  out.button_pressed = document.querySelector(".pv-motion").getAttribute("aria-pressed");
+  out.globals_leaked = ["init", "VIEWS", "STORE_KEY", "motionOn"].filter((k) => k in window);
 } catch (e) { out.error = String(e && e.stack || e); }
 document.getElementById("result").textContent = JSON.stringify(out);
 </script>

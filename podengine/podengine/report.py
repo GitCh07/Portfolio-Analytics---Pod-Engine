@@ -27,6 +27,26 @@ thead th{position:sticky;top:0;background:var(--surface);z-index:1}
 .subtab{border:0;background:none;color:var(--text2);font:inherit;font-size:14px;padding:9px 12px;border-bottom:2px solid transparent;cursor:pointer;white-space:nowrap}
 .subtab[aria-selected=true]{color:var(--text);border-bottom-color:var(--s1);font-weight:600}
 .subpanel[hidden]{display:none}.subpanel>h2{margin-top:18px}
+.motion-btn{position:fixed;top:12px;right:14px;z-index:6;display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);
+background:var(--surface);color:var(--text2);border-radius:999px;padding:4px 11px;font:inherit;font-size:13px;cursor:pointer;
+transition:border-color var(--dur-micro) var(--ease-out),color var(--dur-micro) var(--ease-out)}
+.motion-btn::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--line)}
+.motion-btn[aria-pressed=true]{color:var(--text)}.motion-btn[aria-pressed=true]::before{background:var(--good)}
+.motion-btn[hidden]{display:none}
+:root{--ease-out:cubic-bezier(0.16,1,0.3,1);--dur-micro:120ms;--dur-short:220ms;--dur-long:420ms;--dur-draw:900ms}
+@keyframes grow-y{from{transform:scaleY(0)}}@keyframes grow-x{from{transform:scaleX(0)}}
+@keyframes rise{from{opacity:0;transform:translateY(8px)}}@keyframes fade{from{opacity:0}}
+@keyframes draw{from{stroke-dashoffset:1}to{stroke-dashoffset:0}}@keyframes pop{from{opacity:0;transform:scale(0.2)}}
+.an-gy{transform-box:fill-box;animation:grow-y var(--dur-long) var(--ease-out) both}
+.an-gx{animation:grow-x var(--dur-long) var(--ease-out) both}
+.an-rise{animation:rise var(--dur-long) var(--ease-out) both}
+.an-fade{animation:fade var(--dur-long) var(--ease-out) both}
+.an-draw{stroke-dasharray:1;animation:draw var(--dur-draw) var(--ease-out) both}
+.an-pop{transform-box:fill-box;transform-origin:center;animation:pop var(--dur-short) var(--ease-out) both}
+.an-clip{transform-box:view-box;animation:grow-x var(--dur-draw) var(--ease-out) both}
+.subpanel[data-drawn] *{animation:none!important}
+[data-motion="off"] *,[data-motion="off"] *::before,[data-motion="off"] *::after{animation:none!important;transition:none!important}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:0.01ms!important;animation-iteration-count:1!important;animation-delay:0ms!important;transition-duration:0.01ms!important}}
 th,td{padding:6px 10px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
 th{color:var(--text2);font-weight:600}th:first-child,td:first-child{text-align:left}td.l,th.l{text-align:left;white-space:normal}
 .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:14px}
@@ -54,11 +74,14 @@ function lineChart(id,d){const box=document.getElementById(id);if(!box)return;co
  tk.forEach(v=>{el('line',{x1:m.l,x2:W-m.r,y1:Y(v),y2:Y(v),stroke:'var(--line)','stroke-width':1},svg);
   const t=el('text',{x:m.l-8,y:Y(v)+4,'text-anchor':'end','font-size':12,fill:'var(--muted)'},svg);t.textContent=fmt(v,d.fmt)});
  const step=Math.max(1,Math.floor(n/6));for(let i=0;i<n;i+=step){const t=el('text',{x:X(i),y:H-6,'text-anchor':'middle','font-size':12,fill:'var(--muted)'},svg);t.textContent=d.xshort?d.xshort[i]:d.x[i]}
- if(d.bands)d.bands.forEach(b=>{let p='';b.hi.forEach((v,i)=>p+=(i?'L':'M')+X(i)+' '+Y(v));for(let i=n-1;i>=0;i--)p+='L'+X(i)+' '+Y(b.lo[i]);el('path',{d:p+'Z',fill:b.color,opacity:.75},svg)});
+ if(d.bands){const cid=id+'-clip';const defs=el('defs',{},svg);const cp=el('clipPath',{id:cid},defs);
+  el('rect',{x:m.l-2,y:0,width:W-m.l-m.r+4,height:H,class:'an-clip',style:`transform-origin:${m.l-2}px 0`},cp);
+  const g=el('g',{'clip-path':`url(#${cid})`},svg);
+  d.bands.forEach(b=>{let p='';b.hi.forEach((v,i)=>p+=(i?'L':'M')+X(i)+' '+Y(v));for(let i=n-1;i>=0;i--)p+='L'+X(i)+' '+Y(b.lo[i]);el('path',{d:p+'Z',fill:b.color,opacity:.75},g)})}
  const ends=[];d.series.forEach(s=>{let p='',pen=false;s.y.forEach((v,i)=>{if(v==null||!isFinite(v)){pen=false;return}p+=(pen?'L':'M')+X(i).toFixed(1)+' '+Y(v).toFixed(1);pen=true});
-  el('path',{d:p,fill:'none',stroke:s.color,'stroke-width':2,'stroke-linejoin':'round'},svg);let j=n-1;while(j>0&&(s.y[j]==null))j--;ends.push({name:s.name,y:Y(s.y[j]),color:s.color})});
+  el('path',{d:p,pathLength:1,class:'an-draw',fill:'none',stroke:s.color,'stroke-width':2,'stroke-linejoin':'round'},svg);let j=n-1;while(j>0&&(s.y[j]==null))j--;ends.push({name:s.name,y:Y(s.y[j]),color:s.color})});
  if(d.labels!==false&&d.series.length<=5){ends.sort((a,b)=>a.y-b.y);for(let i=1;i<ends.length;i++)if(ends[i].y-ends[i-1].y<15)ends[i].y=ends[i-1].y+15;
-  ends.forEach(e=>{el('circle',{cx:W-m.r+7,cy:e.y,r:4,fill:e.color},svg);const t=el('text',{x:W-m.r+15,y:e.y+4,'font-size':12,fill:'var(--text2)'},svg);t.textContent=e.name})}
+  ends.forEach(e=>{el('circle',{cx:W-m.r+7,cy:e.y,r:4,fill:e.color,class:'an-pop',style:'animation-delay:900ms'},svg);const t=el('text',{x:W-m.r+15,y:e.y+4,'font-size':12,fill:'var(--text2)',class:'an-fade',style:'animation-delay:1000ms'},svg);t.textContent=e.name})}
  const cross=el('line',{y1:m.t,y2:H-m.b,stroke:'var(--muted)','stroke-width':1,visibility:'hidden'},svg);const tip=document.createElement('div');tip.className='tip';box.appendChild(tip);
  svg.addEventListener('mousemove',ev=>{const r=svg.getBoundingClientRect();const px=(ev.clientX-r.left)/r.width*W;let i=Math.round((px-m.l)/(W-m.l-m.r)*(n-1));i=Math.max(0,Math.min(n-1,i));
   cross.setAttribute('x1',X(i));cross.setAttribute('x2',X(i));cross.setAttribute('visibility','visible');
@@ -66,16 +89,32 @@ function lineChart(id,d){const box=document.getElementById(id);if(!box)return;co
   if(d.bands)d.bands.forEach(b=>{h+='<br>'+b.name+': '+fmt(b.lo[i],d.fmt)+' to '+fmt(b.hi[i],d.fmt)});
   tip.innerHTML=h;tip.style.display='block';const left=(X(i)/W*r.width);tip.style.left=(left>r.width*0.6?left-tip.offsetWidth-12:left+12)+'px';tip.style.top='10px'});
  svg.addEventListener('mouseleave',()=>{cross.setAttribute('visibility','hidden');tip.style.display='none'})}
-document.addEventListener("click",e=>{const b=e.target.closest(".subtab");if(!b)return;
+const motionOn=()=>document.documentElement.dataset.motion!=='off'&&!matchMedia('(prefers-reduced-motion: reduce)').matches;
+function countUp(root){root.querySelectorAll('[data-count]').forEach(el=>{const m=el.dataset.count.match(/^([+−]?)(\d+(?:\.\d+)?)(.*)$/);
+ if(!m)return;const end=+m[2],dec=(m[2].split('.')[1]||'').length,t0=performance.now();
+ const step=t=>{const k=Math.min(1,(t-t0)/700),e=1-(1-k)**3;el.textContent=m[1]+(end*e).toFixed(dec)+m[3];if(k<1)requestAnimationFrame(step)};
+ requestAnimationFrame(step)})}
+function firstShow(p){if(!p||p.dataset.seen)return;p.dataset.seen='1';if(motionOn())countUp(p);
+ setTimeout(()=>p.setAttribute('data-drawn',''),2600)}
+document.addEventListener("click",e=>{const mb=e.target.closest(".motion-btn");if(mb){const on=document.documentElement.dataset.motion==='off';
+  document.documentElement.dataset.motion=on?'on':'off';mb.setAttribute('aria-pressed',on?'true':'false');
+  try{localStorage.setItem('motion',on?'on':'off')}catch(err){}return}
+ const b=e.target.closest(".subtab");if(!b)return;
  document.querySelectorAll(".subtab").forEach(x=>x.setAttribute("aria-selected",x===b?"true":"false"));
- document.querySelectorAll(".subpanel").forEach(p=>p.hidden=p.id!==b.dataset.tab);window.scrollTo(0,0)});
+ document.querySelectorAll(".subpanel").forEach(p=>p.hidden=p.id!==b.dataset.tab);window.scrollTo(0,0);
+ firstShow(document.getElementById(b.dataset.tab))});
+document.addEventListener("DOMContentLoaded",()=>{const mb=document.querySelector('.motion-btn');
+ if(mb){if(window.top!==window)mb.hidden=true;mb.setAttribute('aria-pressed',document.documentElement.dataset.motion==='off'?'false':'true')}
+ firstShow(document.querySelector('.subpanel:not([hidden])'))});
 function barChart(id,d){const box=document.getElementById(id);if(!box)return;const W=500,rh=26,m={l:d.left||130,r:60,t:4,b:4},H=m.t+m.b+rh*d.labels.length;
  const svg=el('svg',{viewBox:`0 0 ${W} ${H}`,role:'img',style:'max-width:560px'},box);const mx=Math.max(...d.values.map(Math.abs),1e-9),neg=Math.min(...d.values)<0;
  const x0=neg?m.l+(W-m.l-m.r)/2:m.l,sc=(neg?(W-m.l-m.r)/2:(W-m.l-m.r))/mx;el('line',{x1:x0,x2:x0,y1:m.t,y2:H-m.b,stroke:'var(--line)'},svg);
  const tip=document.createElement('div');tip.className='tip';box.appendChild(tip);
  d.labels.forEach((lb,i)=>{const v=d.values[i],y=m.t+i*rh,w=Math.abs(v)*sc;const t=el('text',{x:m.l-8,y:y+rh/2+4,'text-anchor':'end','font-size':12,fill:'var(--text2)'},svg);t.textContent=lb;
-  const b=el('rect',{x:v<0?x0-w:x0,y:y+5,width:Math.max(w,1),height:rh-10,rx:3,fill:d.color||'var(--s1)'},svg);
-  const tv=el('text',{x:v<0?x0-w-6:x0+w+6,y:y+rh/2+4,'text-anchor':v<0?'end':'start','font-size':12,fill:'var(--text)'},svg);tv.textContent=fmt(v,d.fmt);
+  const dl=Math.min(i,30)*18;
+  const b=el('rect',{x:v<0?x0-w:x0,y:y+5,width:Math.max(w,1),height:rh-10,rx:3,fill:d.color||'var(--s1)',class:'an-gx',
+   style:`transform-box:fill-box;transform-origin:${v<0?'right':'left'};animation-delay:${dl}ms`},svg);
+  const tv=el('text',{x:v<0?x0-w-6:x0+w+6,y:y+rh/2+4,'text-anchor':v<0?'end':'start','font-size':12,fill:'var(--text)',class:'an-fade',style:`animation-delay:${dl+200}ms`},svg);tv.textContent=fmt(v,d.fmt);
   const hit=el('rect',{x:0,y:y,width:W,height:rh,fill:'transparent'},svg);hit.addEventListener('mousemove',()=>{tip.innerHTML='<b>'+lb+'</b>: '+fmt(v,d.fmt);tip.style.display='block';tip.style.left='40%';tip.style.top=(y/H*100)+'%'});
   hit.addEventListener('mouseleave',()=>tip.style.display='none')})}
 """
@@ -170,7 +209,9 @@ def table(headers, rows, left=()):
 
 
 def tile(k, v, n=""):
-    return f"<div class=tile><div class=k>{esc(k)}</div><div class=v>{v}</div><div class=n>{n}</div></div>"
+    plain = re.sub(r"<[^>]+>", "", str(v))
+    return (f"<div class=tile><div class=k>{esc(k)}</div><div class=v data-count=\"{html.escape(plain, quote=True)}\">{v}</div>"
+            f"<div class=n>{n}</div></div>")
 
 
 def legend(names, colors):
@@ -424,7 +465,7 @@ def build_report(b, path):
     cut = body.index("<h2>")
     main_html = tabify(body[:cut], body[cut:])
     doc = (f"<!DOCTYPE html><html lang=en><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
-           f"<title>Pod Engine report {info['asof'].date()}</title><style>{CSS}</style></head><body><main>"
+           f"<title>Pod Engine report {info['asof'].date()}</title><script>try{{var o=localStorage.getItem('motion');if(o)document.documentElement.dataset.motion=o;}}catch(e){{}}</script><style>{CSS}</style></head><body><button class=motion-btn type=button aria-pressed=true>Motion</button><main>"
            + _title_tags(main_html) + f"<p class=small>Generated in {info['elapsed']:.0f}s.</p></main><script>{JS}\n{calls}</script></body></html>")
     with open(path, "w", encoding="utf-8") as fh:
         fh.write(doc)
@@ -642,7 +683,7 @@ def build_opt_report(r, cfg, path, info, orders=None):
     body = "".join(P)
     cut = body.index("<h2>")
     doc = (f"<!DOCTYPE html><html lang=en><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
-           f"<title>Portfolio optimiser {r['asof'].date()}</title><style>{CSS}</style></head><body><main>"
+           f"<title>Portfolio optimiser {r['asof'].date()}</title><script>try{{var o=localStorage.getItem('motion');if(o)document.documentElement.dataset.motion=o;}}catch(e){{}}</script><style>{CSS}</style></head><body><button class=motion-btn type=button aria-pressed=true>Motion</button><main>"
            + _title_tags(tabify(body[:cut], body[cut:])) + f"</main><script>{JS}\n{calls}</script></body></html>")
     with open(path, "w", encoding="utf-8") as fh:
         fh.write(doc)

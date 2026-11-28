@@ -1,6 +1,6 @@
 """Minimal real-time headless-Chrome driver for the viewer tests (Chrome DevTools
-Protocol over a websocket). Headless 'virtual time' does not run
-requestAnimationFrame, so the animation tests need real time."""
+Protocol over a websocket). The motion tests need real time: CSS animations and
+requestAnimationFrame do not advance under headless 'virtual time'."""
 import json
 import os
 import shutil
@@ -28,8 +28,10 @@ def free_port():
     return port
 
 
-def run_page(url, expr, done=lambda v: v not in (None, "", "pending"), timeout=45):
-    """Open `url` in headless Chrome and poll JavaScript `expr` until `done(value)`."""
+def run_page(url, expr, done=lambda v: v not in (None, "", "pending"), timeout=45, media=None):
+    """Open `url` in headless Chrome and poll JavaScript `expr` until `done(value)`.
+    `media`: CSS media features to emulate, e.g. [{"name": "prefers-reduced-motion", "value": "reduce"}];
+    the page is reloaded with them in effect."""
     from websockets.sync.client import connect
     exe = chrome_path()
     port = free_port()
@@ -48,15 +50,22 @@ def run_page(url, expr, done=lambda v: v not in (None, "", "pending"), timeout=4
         if not ws_url:
             raise RuntimeError("could not connect to headless Chrome")
         with connect(ws_url, max_size=None) as ws:
-            n, t0 = 0, time.time()
-            while time.time() - t0 < timeout:
+            n = 0
+
+            def call(method, params):
+                nonlocal n
                 n += 1
-                ws.send(json.dumps({"id": n, "method": "Runtime.evaluate",
-                                    "params": {"expression": expr, "returnByValue": True}}))
+                ws.send(json.dumps({"id": n, "method": method, "params": params}))
                 while True:
                     msg = json.loads(ws.recv())
                     if msg.get("id") == n:
-                        break
+                        return msg
+            if media:
+                call("Emulation.setEmulatedMedia", {"features": media})
+                call("Page.reload", {"ignoreCache": True})
+            t0 = time.time()
+            while time.time() - t0 < timeout:
+                msg = call("Runtime.evaluate", {"expression": expr, "returnByValue": True})
                 val = msg.get("result", {}).get("result", {}).get("value")
                 if done(val):
                     return val

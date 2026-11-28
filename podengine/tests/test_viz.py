@@ -217,17 +217,123 @@ def server(exported):
     srv.shutdown()
 
 
-def test_browser_toggle_and_render_loop(server):
-    out = json.loads(run_page(server + "selftest.html",
-                              "document.getElementById('result') && document.getElementById('result').textContent"))
+SELFTEST = "document.getElementById('result') && document.getElementById('result').textContent"
+VIEW_IDS = ["fan", "calibration", "regimes", "frontier", "exposure"]
+
+
+def test_browser_charts_draw_in_once(server):
+    out = json.loads(run_page(server + "selftest.html", SELFTEST))
     assert "error" not in out, out.get("error")
-    # animations OFF (default): nothing animates and the animation code is never fetched
-    assert out["off_raf"] == 0 and out["off_anim_loaded"] is False and out["off_anim_fetched"] == 0
-    assert out["off_play_disabled"] is True and out["canvases_drawn"] == 5 and out["globals_leaked"] == []
-    # ON: the loop runs, pauses off-screen, resumes on-screen; OFF again: it stops and the choice is saved
-    assert out["on_anim_loaded"] is True and out["on_raf"] > 5
-    assert out["offscreen_raf"] <= 1 and out["resumed_raf"] > 5
-    assert out["after_off_raf"] <= 1 and out["pref_saved"] == "off"
+    assert out["reduced"] is False and out["default_on"] is True
+    # every chart is real SVG and draws in when its data first arrives ...
+    assert all(out["svg_drawn"][k] > 3 for k in VIEW_IDS), out["svg_drawn"]
+    assert all(out["draw_on_show"][k] > 0 for k in VIEW_IDS), out["draw_on_show"]
+    assert all(400 <= out["longest"][k] <= 2600 for k in VIEW_IDS), out["longest"]   # quick, and done before freeze
+    # ... then everything is still: no running animations, no animation-frame loop
+    assert out["settled"] == 0 and out["idle_raf"] == 0
+    # revisiting a tab or dragging the date shows the chart directly; picking a date replays once
+    assert out["revisit_replays"] == 0 and out["drag_animates"] == 0
+    assert out["change_replays"] > 0 and out["change_settles"] == 0
+    # Motion off: nothing moves, the chart is identical, and the choice is saved and shown
+    assert out["off_animates"] == 0 and out["same_chart"] is True
+    assert out["pref_saved"] == "off" and out["attr_off"] == "off" and out["button_pressed"] == "false"
+    assert out["globals_leaked"] == []
+
+
+def test_browser_honours_reduced_motion(server):
+    reduce = [{"name": "prefers-reduced-motion", "value": "reduce"}]
+    out = json.loads(run_page(server + "selftest.html", SELFTEST, media=reduce,
+                              done=lambda v: bool(v) and v != "pending" and '"reduced":true' in v))
+    assert "error" not in out, out.get("error")
+    assert out["reduced"] is True
+    # every animation, delay included, collapses to ~0ms: charts appear complete at once
+    assert all(0 < out["longest"][k] <= 1 for k in VIEW_IDS), out["longest"]
+    assert out["settled"] == 0
+
+
+REPORT_CHECK = r"""
+<script>
+(async () => {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const running = (el) => el.getAnimations({subtree: true}).filter((a) => a.playState === "running").length;
+  const o = {};
+  try {
+    await sleep(150);
+    const first = document.querySelector(".subpanel:not([hidden])");
+    o.first_draws = running(first);
+    o.button_pressed = document.querySelector(".motion-btn").getAttribute("aria-pressed");
+    await sleep(3000);
+    o.first_settled = running(document.body);
+    o.first_frozen = first.hasAttribute("data-drawn");
+    const tiles = [...document.querySelectorAll("[data-count]")];
+    o.tiles = tiles.length;
+    o.tiles_final = tiles.every((t) => t.textContent.trim() === t.dataset.count.trim());
+    const tabs = [...document.querySelectorAll(".subtab")];
+    tabs[1].click(); await sleep(150);
+    o.second_draws = running(document.getElementById(tabs[1].dataset.tab));
+    tabs[0].click(); await sleep(150);
+    o.revisit_draws = running(first);
+    document.querySelector(".motion-btn").click();
+    o.attr_off = document.documentElement.dataset.motion;
+    o.pref_saved = localStorage.getItem("motion");
+    tabs[2].click(); await sleep(150);
+    o.off_draws = running(document.body);
+  } catch (e) { o.error = String(e && e.stack || e); }
+  window.__result = JSON.stringify(o);
+})();
+</script>"""
+
+
+@pytest.fixture(scope="module")
+def report_url(server, exported):
+    from podengine.pipeline import full_run
+    from podengine.report import build_report
+    d, md, cfg = exported[0], exported[1], exported[2]
+    b = full_run(md, cfg, 50000, quick=True, state_dir=str(d / "_state"), verbose=False)
+    path = build_report(b, str(d / "motion_report.html"))
+    text = open(path).read()
+    open(path, "w").write(text.replace("</body>", REPORT_CHECK + "</body>"))
+    return server + "motion_report.html"
+
+
+def test_report_charts_draw_in_once(report_url):
+    out = json.loads(run_page(report_url, "window.__result || ''", done=bool))
+    assert "error" not in out, out.get("error")
+    assert out["button_pressed"] == "true" and out["first_draws"] > 0
+    assert out["first_settled"] == 0 and out["first_frozen"] is True
+    assert out["tiles"] > 0 and out["tiles_final"] is True        # count-up ends on the real figure
+    assert out["second_draws"] > 0 and out["revisit_draws"] == 0
+    assert out["attr_off"] == "off" and out["pref_saved"] == "off" and out["off_draws"] == 0
+
+
+def _motion_css():
+    from podengine.report import CSS
+    viz = open(os.path.join(VX.VIZ_DIR, "viz.css")).read()
+    return {"viz.css": viz, "report.py": CSS}
+
+
+@pytest.mark.parametrize("name", ["viz.css", "report.py"])
+def test_motion_css_animates_only_cheap_properties(name):
+    import re
+    css = _motion_css()[name]
+    frames = re.findall(r"@keyframes\s+[\w-]+\s*\{((?:[^{}]*\{[^{}]*\})*)[^{}]*\}", css)
+    assert frames, "no keyframes found"
+    for body in frames:
+        props = set(re.findall(r"([a-z-]+)\s*:", body))
+        assert props <= {"transform", "opacity", "stroke-dashoffset"}, props
+        assert "to{" not in body.replace(" ", "") or "stroke-dashoffset" in body   # only `from` (draw needs `to`)
+    assert not re.search(r"transition\s*:\s*all", css)
+    assert '[data-motion="off"]' in css and "prefers-reduced-motion" in css
+    for tok in ("--ease-out:cubic-bezier(0.16,1,0.3,1)", "--dur-micro:120ms", "--dur-short:220ms",
+                "--dur-long:420ms", "--dur-draw:900ms"):
+        assert tok in css.replace(" ", ""), tok
+
+
+def test_no_play_controls_left():
+    js = open(os.path.join(VX.VIZ_DIR, "js", "app.js")).read() + open(os.path.join(VX.VIZ_DIR, "js", "views.js")).read()
+    assert not os.path.exists(os.path.join(VX.VIZ_DIR, "js", "anim.js"))
+    for word in ("Play", "Pause", "speed", "animator", "setInterval"):
+        assert word not in js, word
 
 
 def test_file_protocol_shows_instructions(exported):

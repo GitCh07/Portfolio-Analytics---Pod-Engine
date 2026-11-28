@@ -1,14 +1,22 @@
-// The five chart views. Plain Canvas 2D, no external libraries. Every number drawn here
-// was computed in Python (podengine/vizexport.py); this file only maps it to pixels.
-// draw(ctx, width, height, data, pos, frac, theme): `pos` is the frame index, `frac` the
-// progress toward the next frame (0..1) while animating.
+// The five chart views, drawn as SVG. Every number was computed in Python
+// (podengine/vizexport.py); this file only maps it to shapes.
+//
+// Motion follows one rule: a chart draws itself in once, from where its data starts,
+// when its data arrives (first open, or a new date picked on the slider), then stays still.
+//   bars grow from the zero line (an-gy), lines draw along their path (an-draw),
+//   areas reveal left to right (an-clip), dots pop in last (an-pop), labels fade in after their mark.
+// With motion off the markup is identical; it is simply already there.
+//
+// svg(width, height, data, pos, uid) returns the SVG markup for frame `pos`.
+// tip(data, pos, frac) returns tooltip HTML for a pointer at fraction `frac` across the plot.
 
 const pct = (v, d = 1) => (v == null || !isFinite(v) ? "–" : (v * 100).toFixed(d) + "%");
-const lerp = (a, b, t) => a + (b - a) * t;
-const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
 const NAMES = { calm: "Calm", stress: "Stress", crisis: "Crisis", single: "Single", unconditional: "Unconditional",
   equity: "Equity", rates: "Rates", credit: "Credit", real: "Real Assets", fx: "FX", custom: "Custom" };
 const pretty = (n) => NAMES[n] || (String(n).charAt(0).toUpperCase() + String(n).slice(1).replace(/_/g, " "));
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const f2 = (x) => (Math.round(x * 100) / 100).toString();
+const C = (name) => `var(--pv-${name})`;
 
 function niceTicks(lo, hi, n = 5) {
   const span = hi - lo || 1;
@@ -20,49 +28,52 @@ function niceTicks(lo, hi, n = 5) {
   return out;
 }
 
-function frame(ctx, W, H, xr, yr, th, fx, fy, pad = { l: 58, r: 16, t: 26, b: 30 }) {
-  const box = { x0: pad.l, x1: W - pad.r, y0: pad.t, y1: H - pad.b };
-  const X = (v) => box.x0 + ((v - xr[0]) / (xr[1] - xr[0] || 1)) * (box.x1 - box.x0);
-  const Y = (v) => box.y1 - ((v - yr[0]) / (yr[1] - yr[0] || 1)) * (box.y1 - box.y0);
-  ctx.font = "12px -apple-system,Segoe UI,Roboto,sans-serif";
-  ctx.lineWidth = 1;
-  for (const v of niceTicks(yr[0], yr[1], 5)) {
-    ctx.strokeStyle = th.line; ctx.beginPath(); ctx.moveTo(box.x0, Y(v)); ctx.lineTo(box.x1, Y(v)); ctx.stroke();
-    ctx.fillStyle = th.muted; ctx.textAlign = "right"; ctx.fillText(fy(v), box.x0 - 8, Y(v) + 4);
+// Scales, gridlines and tick labels. Axes do not animate: they are the frame the data arrives into.
+function axes(W, H, xr, yr, fx, fy, pad = { l: 58, r: 18, t: 28, b: 30 }, opts = {}) {
+  const b = { x0: pad.l, x1: W - pad.r, y0: pad.t, y1: H - pad.b };
+  const X = (v) => b.x0 + ((v - xr[0]) / (xr[1] - xr[0] || 1)) * (b.x1 - b.x0);
+  const Y = (v) => b.y1 - ((v - yr[0]) / (yr[1] - yr[0] || 1)) * (b.y1 - b.y0);
+  let s = "";
+  if (!opts.noY) for (const v of niceTicks(yr[0], yr[1], 5)) {
+    s += `<line x1="${f2(b.x0)}" x2="${f2(b.x1)}" y1="${f2(Y(v))}" y2="${f2(Y(v))}" style="stroke:${C("line")}"/>`;
+    s += `<text x="${f2(b.x0 - 8)}" y="${f2(Y(v) + 4)}" text-anchor="end" class="pv-tick">${esc(fy(v))}</text>`;
   }
-  ctx.textAlign = "center";
-  for (const v of niceTicks(xr[0], xr[1], 6)) ctx.fillText(fx(v), X(v), H - 10);
-  return { X, Y, box };
+  for (const v of (opts.xTicks || niceTicks(xr[0], xr[1], 6))) {
+    s += `<text x="${f2(X(v))}" y="${H - 10}" text-anchor="middle" class="pv-tick">${esc(fx(v))}</text>`;
+  }
+  return { X, Y, b, s };
 }
 
-function line(ctx, pts, color, width = 2, dash = null, alpha = 1) {
-  if (pts.length < 2) return;
-  ctx.save();
-  ctx.globalAlpha = alpha; ctx.strokeStyle = color; ctx.lineWidth = width; ctx.lineJoin = "round";
-  if (dash) ctx.setLineDash(dash);
-  ctx.beginPath();
-  pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
-  ctx.stroke();
-  ctx.restore();
+// Path through points; a null value breaks the line instead of drawing it as zero.
+function pathD(pts) {
+  let d = "", pen = false;
+  for (const p of pts) {
+    if (!p || p[1] == null || !isFinite(p[1])) { pen = false; continue; }
+    d += (pen ? "L" : "M") + f2(p[0]) + " " + f2(p[1]);
+    pen = true;
+  }
+  return d;
 }
+const areaD = (upper, lower) =>
+  pathD(upper) + lower.slice().reverse().map((p) => "L" + f2(p[0]) + " " + f2(p[1])).join("") + "Z";
 
-function area(ctx, upper, lower, color, alpha = 1) {
-  ctx.save();
-  ctx.globalAlpha = alpha; ctx.fillStyle = color;
-  ctx.beginPath();
-  upper.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
-  for (let i = lower.length - 1; i >= 0; i--) ctx.lineTo(lower[i][0], lower[i][1]);
-  ctx.closePath(); ctx.fill();
-  ctx.restore();
-}
+const line = (pts, color, width = 2, cls = "an-draw", delay = 0) =>
+  `<path d="${pathD(pts)}" pathLength="1" class="${cls}" style="fill:none;stroke:${color};stroke-width:${width};` +
+  `stroke-linejoin:round;animation-delay:${delay}ms"/>`;
+const dashed = (pts, color, width = 1.5, dash = "6 5") =>
+  `<path d="${pathD(pts)}" style="fill:none;stroke:${color};stroke-width:${width};stroke-dasharray:${dash}"/>`;
+const dot = (x, y, r, color, delay, ring = true) =>
+  `<circle cx="${f2(x)}" cy="${f2(y)}" r="${r}" class="an-pop" style="fill:${color};` +
+  (ring ? `stroke:${C("surface")};stroke-width:2;` : "") + `animation-delay:${delay}ms"/>`;
+const label = (x, y, text, anchor, delay, cls = "pv-cap") =>
+  `<text x="${f2(x)}" y="${f2(y)}" text-anchor="${anchor}" class="${cls} an-fade" style="animation-delay:${delay}ms">${esc(text)}</text>`;
 
-function caption(ctx, text, x, y, th, align = "left", color = null) {
-  ctx.save();
-  ctx.font = "12.5px -apple-system,Segoe UI,Roboto,sans-serif";
-  ctx.fillStyle = color || th.text2; ctx.textAlign = align;
-  ctx.fillText(text, x, y);
-  ctx.restore();
-}
+// Left-to-right reveal for areas and dashed lines (which cannot use the stroke-dashoffset draw).
+const clipDef = (id, b, H) =>
+  `<clipPath id="${id}"><rect class="an-clip" x="${f2(b.x0 - 2)}" y="0" width="${f2(b.x1 - b.x0 + 4)}" height="${H}" ` +
+  `style="transform-origin:${f2(b.x0 - 2)}px 0"/></clipPath>`;
+const hit = (b) => `<rect class="pv-hit" x="${f2(b.x0)}" y="${f2(b.y0)}" width="${f2(b.x1 - b.x0)}" height="${f2(b.y1 - b.y0)}"/>`;
+const open = (W, H, title) => `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${esc(title)}">`;
 
 function legend(h, items) {
   return h("div", { class: "pv-legend" }, ...items.map(([name, color, dash]) =>
@@ -72,90 +83,104 @@ function legend(h, items) {
 
 // ===================================================================== 1. forecast fan
 const fan = {
-  file: "fan.json", title: "Forecast Fan", staticFrac: 1, rate: 0.6,
+  file: "fan.json", title: "Forecast Fan",
   blurb: "At each forecast date the Monte Carlo simulates the engine's target weights for the next month. The bands " +
-    "are its 90% and 50% ranges and its median; the orange line is what those same weights actually did. " +
-    "Playing replays each month's outcome inside its forecast, then re-forecasts at the next date.",
+    "are its 90% and 50% ranges and the blue line its median; the orange line is what those same weights actually did, " +
+    "drawn in after the forecast. Pick a date to see that month's forecast and outcome.",
   labels: (d) => [d.label, "Gross of trading costs and financing", "Raw Monte Carlo bands (before the engine's self-correction)"],
-  legend: (h) => legend(h, [["90% range", "var(--pv-band1)"], ["50% range", "var(--pv-band2)"],
-    ["Median", "var(--pv-s1)"], ["Realised", "var(--pv-s2)"]]),
+  legend: (h) => legend(h, [["90% Range", C("band1")], ["50% Range", C("band2")], ["Median", C("s1")], ["Realised", C("s2")]]),
   count: (d) => d.frames.length,
-  dateOf: (d, i) => d.frames[i] ? d.frames[i].date : "",
-  draw(ctx, W, H, d, i, frac, th) {
+  dateOf: (d, i) => (d.frames[i] ? d.frames[i].date : ""),
+  svg(W, H, d, i, uid) {
     const f = d.frames[i];
-    if (!f) return;
-    const n = f.realized.length;
-    const b = f.bands;
-    const show = Math.max(1, 1 + Math.round(clamp(frac, 0, 1) * (n - 1)));
-    let lo = Math.min(...b["5"], ...f.realized), hi = Math.max(...b["95"], ...f.realized);
+    if (!f) return "";
+    const n = f.realized.length, B = f.bands;
+    const lo = Math.min(...B["5"], ...f.realized), hi = Math.max(...B["95"], ...f.realized);
     const pad = (hi - lo) * 0.08 || 0.01;
-    const g = frame(ctx, W, H, [0, n - 1], [lo - pad - 1, hi + pad - 1], th, (v) => v + "d", (v) => pct(v, 1));
+    const g = axes(W, H, [0, n - 1], [lo - pad - 1, hi + pad - 1], (v) => v + "d", (v) => pct(v, 1));
     const P = (arr) => arr.map((v, k) => [g.X(k), g.Y(v - 1)]);
-    area(ctx, P(b["95"]), P(b["5"]), th.band1, 0.9);
-    area(ctx, P(b["75"]), P(b["25"]), th.band2, 0.9);
-    line(ctx, P(b["50"]), th.s1, 2);
-    line(ctx, [[g.X(0), g.Y(0)], [g.X(n - 1), g.Y(0)]], th.muted, 1, [3, 4]);
-    const rp = P(f.realized.slice(0, show));
-    line(ctx, rp, th.s2, 2.5);
-    const last = rp[rp.length - 1];
-    ctx.fillStyle = th.s2; ctx.beginPath(); ctx.arc(last[0], last[1], 4.5, 0, 7); ctx.fill();
-    caption(ctx, `Forecast made ${f.date} · next ${n - 1} trading days`, g.box.x0, 16, th);
-    if (show === n) caption(ctx, `Outcome landed at the ${Math.round(f.pit * 100)}th percentile of the forecast`,
-      g.box.x1, 16, th, "right", th.text);
+    const last = P(f.realized)[n - 1];
+    return open(W, H, this.title) + `<defs>${clipDef(uid + "c", g.b, H)}</defs>` + g.s +
+      dashed([[g.X(0), g.Y(0)], [g.X(n - 1), g.Y(0)]], C("muted"), 1, "3 4") +
+      `<g clip-path="url(#${uid}c)">` +
+      `<path d="${areaD(P(B["95"]), P(B["5"]))}" style="fill:${C("band1")}"/>` +
+      `<path d="${areaD(P(B["75"]), P(B["25"]))}" style="fill:${C("band2")}"/></g>` +
+      line(P(B["50"]), C("s1"), 2, "an-draw", 0) +
+      line(P(f.realized), C("s2"), 2.5, "an-draw", 450) +
+      dot(last[0], last[1], 5, C("s2"), 1300) +
+      label(g.b.x0, 17, `Forecast made ${f.date} · next ${n - 1} trading days`, "start", 0) +
+      label(g.b.x1, 17, `Outcome landed at the ${Math.round(f.pit * 100)}th percentile of the forecast`, "end", 1400, "pv-cap pv-strong") +
+      hit(g.b) + "</svg>";
+  },
+  tip(d, i, frac) {
+    const f = d.frames[i];
+    const n = f.realized.length, k = Math.round(frac * (n - 1));
+    return `<b>Day ${k}</b><br>Realised ${pct(f.realized[k] - 1)}<br>Median ${pct(f.bands["50"][k] - 1)}<br>` +
+      `50% range ${pct(f.bands["25"][k] - 1)} to ${pct(f.bands["75"][k] - 1)}<br>90% range ${pct(f.bands["5"][k] - 1)} to ${pct(f.bands["95"][k] - 1)}`;
   },
 };
 
 // ===================================================================== 2. calibration (PIT)
 const calibration = {
-  file: "calibration.json", title: "Calibration: Where Outcomes Landed in Their Forecasts", staticFrac: 0, rate: 4, animated: false,
+  file: "calibration.json", title: "Calibration: Where Outcomes Landed in Their Forecasts",
   blurb: "For every past forecast, the percentile at which the real outcome landed inside the simulated distribution " +
     "(the probability integral transform, PIT). If the forecasts are honest, outcomes land evenly across percentiles " +
     "and the bars sit on the dashed uniform line. Bars piling up at both ends mean the forecast tails were too thin; " +
-    "an empty middle-heavy shape means they were too fat. Move the slider to see the picture as it stood at any past date.",
+    "a middle-heavy shape means they were too fat. Pick a date to see the picture as it stood then.",
   labels: (d) => [d.label, `${d.horizon_days}-day forecasts, non-overlapping`, "Gross of costs"],
-  legend: (h) => legend(h, [["Middle 80% of percentiles", "var(--pv-s1)"], ["Outer 10% each side", "var(--pv-s2)"],
-    ["Uniform (perfect calibration)", "var(--pv-text2)", true]]),
+  legend: (h) => legend(h, [["Middle 80% of Percentiles", C("s1")], ["Outer 10% Each Side", C("s2")],
+    ["Uniform (Perfect Calibration)", C("text2"), true]]),
   count: (d) => d.frames.length,
-  dateOf: (d, i) => d.frames[i] ? d.frames[i].date : "",
-  draw(ctx, W, H, d, i, frac, th) {
-    const a = d.frames[i], b = d.frames[Math.min(i + 1, d.frames.length - 1)];
-    if (!a) return;
+  dateOf: (d, i) => (d.frames[i] ? d.frames[i].date : ""),
+  svg(W, H, d, i) {
+    const a = d.frames[i];
+    if (!a) return "";
     const bins = d.bins;
-    const dens = a.counts.map((c, k) => {
-      const da = c / (a.n / bins), db = b.counts[k] / (b.n / bins);
-      return lerp(da, db, frac);
-    });
+    const dens = a.counts.map((c) => c / (a.n / bins));
     const ymax = Math.max(2, Math.max(...dens) * 1.15);
-    const g = frame(ctx, W, H, [0, 1], [0, ymax], th, (v) => Math.round(v * 100) + "th", (v) => v.toFixed(1) + "×");
-    const bw = (g.box.x1 - g.box.x0) / bins;
+    const g = axes(W, H, [0, 1], [0, ymax], (v) => Math.round(v * 100) + "th", (v) => v.toFixed(1) + "×");
+    const bw = (g.b.x1 - g.b.x0) / bins;
+    let bars = "";
     dens.forEach((v, k) => {
       const lo = k / bins, hi = (k + 1) / bins;
       const tail = lo < d.tail - 1e-9 || hi > 1 - d.tail + 1e-9;
-      ctx.fillStyle = tail ? th.s2 : th.s1;
-      const x = g.X(lo) + 1, y = g.Y(v);
-      ctx.beginPath();
-      if (ctx.roundRect) ctx.roundRect(x, y, bw - 2, g.Y(0) - y, [4, 4, 0, 0]); else ctx.rect(x, y, bw - 2, g.Y(0) - y);
-      ctx.fill();
+      const y = g.Y(v), h = Math.max(g.Y(0) - y, 0);
+      bars += `<rect x="${f2(g.X(lo) + 1.5)}" y="${f2(y)}" width="${f2(bw - 3)}" height="${f2(h)}" rx="3" class="an-gy" ` +
+        `style="fill:${tail ? C("s2") : C("s1")};transform-origin:bottom;animation-delay:${k * 140}ms"/>`;
     });
-    line(ctx, [[g.X(0), g.Y(1)], [g.X(1), g.Y(1)]], th.text2, 1.5, [6, 5]);
+    const end = bins * 140 + 200;
     const x = g.X(a.pit);
-    ctx.fillStyle = th.text;
-    ctx.beginPath(); ctx.moveTo(x, g.box.y1 + 1); ctx.lineTo(x - 5, g.box.y1 + 9); ctx.lineTo(x + 5, g.box.y1 + 9); ctx.fill();
-    caption(ctx, `${a.n} forecasts up to ${a.date} · latest outcome at the ${Math.round(a.pit * 100)}th percentile (▲)`,
-      g.box.x0, 16, th);
-    caption(ctx, "density relative to uniform", g.box.x1, 16, th, "right");
+    return open(W, H, this.title) + g.s + bars +
+      `<path d="M${f2(g.b.x0)} ${f2(g.Y(1))}H${f2(g.b.x1)}" class="an-fade" style="fill:none;stroke:${C("text2")};` +
+      `stroke-width:1.5;stroke-dasharray:6 5;animation-delay:${end}ms"/>` +
+      `<path d="M${f2(x)} ${f2(g.b.y1 + 2)}l-5 8h10z" class="an-pop" style="fill:${C("text")};animation-delay:${end}ms"/>` +
+      label(g.b.x0, 17, `${a.n} forecasts up to ${a.date} · latest outcome at the ${Math.round(a.pit * 100)}th percentile (▲)`, "start", 0) +
+      label(g.b.x1, 17, "Density relative to uniform", "end", 0) + hit(g.b) + "</svg>";
+  },
+  tip(d, i, frac) {
+    const a = d.frames[i], k = Math.min(d.bins - 1, Math.floor(frac * d.bins));
+    const lo = Math.round((k / d.bins) * 100), hi = Math.round(((k + 1) / d.bins) * 100);
+    return `<b>${lo}th to ${hi}th percentile</b><br>${a.counts[k]} of ${a.n} outcomes (${pct(a.counts[k] / a.n, 0)}; uniform ${pct(1 / d.bins, 0)})`;
   },
   below(el, d, i, h) {
     const f = d.frames[i];
     if (!f) return;
     const exp = pct(f.tail_expected, 0), got = pct(f.tail_share, 0), p = f.tail_p == null ? "–" : f.tail_p.toFixed(3);
-    const msg = {
+    const msg = [...{
       ok: ["Consistent with honest forecasts", `${got} of outcomes landed in the outer tails, against ${exp} expected (p = ${p}).`],
       thin: ["Tails too thin", `${got} of outcomes landed in the outer tails, against ${exp} expected (p = ${p}): the forecast ranges were too narrow.`],
       fat: ["Tails too fat", `Only ${got} of outcomes landed in the outer tails, against ${exp} expected (p = ${p}): the forecast ranges were wider than needed.`],
       insufficient: ["Too few forecasts to judge", `${f.n} so far; the flag starts at 30.`],
-    }[f.flag];
-    const color = { ok: "var(--pv-good)", thin: "var(--pv-crit)", fat: "var(--pv-warn)", insufficient: "var(--pv-muted)" }[f.flag];
+    }[f.flag]];
+    let color = { ok: C("good"), thin: C("crit"), fat: C("warn"), insufficient: C("muted") }[f.flag];
+    // the tail test can pass while the full distribution still fails uniformity: say so rather than "honest"
+    const shapeOff = f.flag === "ok" && f.ks_p != null && f.ks_p < 0.05;
+    if (shapeOff) {
+      msg[0] = "Tails fine, shape off";
+      msg[1] = `${got} of outcomes landed in the outer tails, against ${exp} expected (p = ${p}), but the outcomes are not ` +
+        "spread evenly across the middle percentiles, so the forecast's centre or spread was off.";
+      color = C("warn");
+    }
     el.textContent = "";
     const box = h("div", { class: "pv-flag" }, h("b", { text: msg[0] + ". " }), msg[1],
       f.ks_p != null ? ` Kolmogorov-Smirnov test of uniformity: p = ${f.ks_p.toFixed(3)}.` : "");
@@ -166,54 +191,47 @@ const calibration = {
 
 // ===================================================================== 3. regime ridgeline
 const regimes = {
-  file: "regimes.json", title: "Regime Ridgeline", staticFrac: 0, rate: 1.5,
+  file: "regimes.json", title: "Regime Ridgeline",
   blurb: "The engine's portfolio, simulated forward one month starting in each market regime (then free to switch " +
-    "regimes as the fitted model allows). The mint ridge is the regime the model thinks we are in now; the dashed gold " +
-    "line is the unconditional distribution, starting from the long-run mix of regimes. Playing moves through history " +
-    "as regime probabilities shift.",
+    "regimes as the fitted model allows). The mint ridge is the regime the model thinks we are in on that date; the " +
+    "dashed gold line is the unconditional distribution, starting from the long-run mix of regimes. Pick a date to see " +
+    "how the regime picture looked then.",
   labels: (d) => [d.label, "Gross of trading costs and financing", `${(d.n_paths || 0).toLocaleString()} paths per ridge`],
-  legend: (h) => legend(h, [["Current regime", "var(--pv-mint)"], ["Other regimes", "var(--pv-neutral)"],
-    ["Unconditional", "var(--pv-gold)", true]]),
+  legend: (h) => legend(h, [["Current Regime", C("mint")], ["Other Regimes", C("neutral")], ["Unconditional", C("gold"), true]]),
   count: (d) => d.frames.length,
-  dateOf: (d, i) => d.frames[i] ? d.frames[i].date : "",
-  draw(ctx, W, H, d, i, frac, th) {
+  dateOf: (d, i) => (d.frames[i] ? d.frames[i].date : ""),
+  svg(W, H, d, i, uid) {
     const a = d.frames[i];
-    if (!a) return;
-    const b0 = d.frames[Math.min(i + 1, d.frames.length - 1)];
-    const b = b0.ridges.length === a.ridges.length ? b0 : a;
-    const mix = (x, y) => x.map((v, k) => lerp(v, y[k], frac));
-    const ridges = a.ridges.map((r, k) => ({ name: pretty(r.name), dens: mix(r.density, b.ridges[k].density) }));
-    const unc = mix(a.unconditional.density, b.unconditional.density);
-    const probs = mix(a.probs, b.probs);
-    const cur = probs.indexOf(Math.max(...probs));
-    const grid = d.grid;
-    const K = ridges.length;
-    const pad = { l: 120, r: 16, t: 30, b: 30 };
-    const g = frame(ctx, W, H, [grid[0], grid[grid.length - 1]], [0, 1], th, (v) => pct(v, 0), () => "", pad);
-    ctx.clearRect(0, pad.t - 2, W, H - pad.t - pad.b + 4);      // ridgeline: no horizontal grid
-    const rowH = (g.box.y1 - g.box.y0) / (K + 0.6);
-    const peak = Math.max(...unc, ...ridges.flatMap((r) => r.dens));
+    if (!a) return "";
+    const grid = d.grid, K = a.ridges.length, cur = a.current;
+    const pad = { l: 120, r: 18, t: 30, b: 30 };
+    const ticks = niceTicks(grid[0], grid[grid.length - 1], 6);
+    const g = axes(W, H, [grid[0], grid[grid.length - 1]], [0, 1], (v) => pct(v, 0), () => "", pad, { noY: true, xTicks: ticks });
+    const rowH = (g.b.y1 - g.b.y0) / (K + 0.6);
+    const peak = Math.max(...a.unconditional.density, ...a.ridges.flatMap((r) => r.density));
     const amp = rowH * 1.55;
-    const z = g.X(0);
-    line(ctx, [[z, g.box.y0], [z, g.box.y1]], th.line, 1);
-    ridges.forEach((r, k) => {
-      const base = g.box.y0 + rowH * (k + 1.4);
-      const pts = r.dens.map((v, j) => [g.X(grid[j]), base - (v / peak) * amp]);
+    let rows = "", labels = "";
+    a.ridges.forEach((r, k) => {
+      const base = g.b.y0 + rowH * (k + 1.4);
+      const pts = r.density.map((v, j) => [g.X(grid[j]), base - (v / peak) * amp]);
       const flat = grid.map((x) => [g.X(x), base]);
+      const un = a.unconditional.density.map((v, j) => [g.X(grid[j]), base - (v / peak) * amp]);
       const isCur = k === cur;
-      area(ctx, pts, flat, isCur ? th.mint : th.neutral, isCur ? 0.6 : 0.35);
-      line(ctx, pts, isCur ? th.mint : th.muted, isCur ? 2.5 : 1.2);
-      line(ctx, unc.map((v, j) => [g.X(grid[j]), base - (v / peak) * amp]), th.gold, 1.8, [6, 4]);
-      line(ctx, [[g.box.x0, base], [g.box.x1, base]], th.line, 1);
-      ctx.save();
-      ctx.font = (isCur ? "600 " : "") + "13px -apple-system,Segoe UI,Roboto,sans-serif";
-      ctx.fillStyle = isCur ? th.text : th.text2; ctx.textAlign = "right";
-      ctx.fillText(r.name, pad.l - 12, base - 6);
-      ctx.font = "12px -apple-system,Segoe UI,Roboto,sans-serif"; ctx.fillStyle = th.muted;
-      ctx.fillText(`p = ${pct(probs[k], 0)}`, pad.l - 12, base + 10);
-      ctx.restore();
+      rows += `<g class="an-rise" style="animation-delay:${k * 90}ms">` +
+        `<path d="${areaD(pts, flat)}" style="fill:${isCur ? C("mint") : C("neutral")};fill-opacity:${isCur ? 0.6 : 0.35}"/>` +
+        `<path d="${pathD(pts)}" style="fill:none;stroke:${isCur ? C("mint") : C("muted")};stroke-width:${isCur ? 2.5 : 1.2}"/>` +
+        `<path d="${pathD(un)}" style="fill:none;stroke:${C("gold")};stroke-width:1.8;stroke-dasharray:6 4"/>` +
+        `<path d="M${f2(g.b.x0)} ${f2(base)}H${f2(g.b.x1)}" style="stroke:${C("line")}"/></g>`;
+      labels += `<text x="${pad.l - 12}" y="${f2(base - 6)}" text-anchor="end" class="${isCur ? "pv-rowlab pv-strong" : "pv-rowlab"} an-fade" ` +
+        `style="animation-delay:${k * 90 + 200}ms">${esc(pretty(r.name))}</text>` +
+        `<text x="${pad.l - 12}" y="${f2(base + 10)}" text-anchor="end" class="pv-tick an-fade" ` +
+        `style="animation-delay:${k * 90 + 200}ms">p = ${pct(a.probs[k], 0)}</text>`;
     });
-    caption(ctx, `${a.date} · ${d.horizon_days}-day return over cash`, g.box.x0, 16, th);
+    const z = g.X(0);
+    return open(W, H, this.title) + `<defs>${clipDef(uid + "c", g.b, H)}</defs>` + g.s +
+      `<path d="M${f2(z)} ${f2(g.b.y0)}V${f2(g.b.y1)}" style="stroke:${C("line")}"/>` +
+      `<g clip-path="url(#${uid}c)">${rows}</g>` + labels +
+      label(g.b.x0, 17, `${a.date} · ${d.horizon_days}-day return over cash`, "start", 0) + "</svg>";
   },
   below(el, d, i, h) {
     const f = d.frames[i];
@@ -227,19 +245,18 @@ const regimes = {
 
 // ===================================================================== 4. rolling efficient frontier
 const frontier = {
-  file: "frontier.json", title: "Rolling Efficient Frontier", staticFrac: 0, rate: 1.5,
+  file: "frontier.json", title: "Rolling Efficient Frontier",
   blurb: "Each date: the highest return achievable at each volatility from the assets then tradable, using the " +
     "trailing year of data, Ledoit-Wolf shrinkage covariance, Bayes-Stein shrunk average returns and the engine's own " +
     "leverage, position and shorting limits. The frontier is built from the same past data it is judged on, so it is " +
-    "an in-sample best case that no real portfolio can be expected to reach; the dot is where the engine's actual " +
-    "holdings sat on the same scale.",
+    "an in-sample best case no real portfolio can be expected to reach. The orange dot is where the engine's actual " +
+    "holdings sat on the same scale, with the previous six dates fading behind it.",
   labels: (d) => [d.label, "In-sample, backward-looking", "Gross of costs",
     `Limits: ${d.constraints.allow_short ? "shorts allowed" : "long only"}, gross ≤ ${d.constraints.gross_cap}×, per asset ≤ ${pct(d.constraints.asset_cap, 0)}`],
-  legend: (h) => legend(h, [["Frontier", "var(--pv-s1)"], ["Best Sharpe point", "var(--pv-s4)"],
-    ["Engine portfolio", "var(--pv-s2)"]]),
+  legend: (h) => legend(h, [["Frontier", C("s1")], ["Best Sharpe Point", C("s4")], ["Engine Portfolio", C("s2")]]),
   count: (d) => d.frames.length,
-  dateOf: (d, i) => d.frames[i] ? d.frames[i].date : "",
-  _range(d) {
+  dateOf: (d, i) => (d.frames[i] ? d.frames[i].date : ""),
+  range(d) {
     if (d._rng) return d._rng;
     let xm = 0, ym = 0, yl = 0;
     for (const f of d.frames) {
@@ -248,28 +265,27 @@ const frontier = {
     }
     return (d._rng = { x: [0, xm * 1.08], y: [yl - 0.02, ym * 1.05] });
   },
-  draw(ctx, W, H, d, i, frac, th) {
+  svg(W, H, d, i) {
     const a = d.frames[i];
-    if (!a) return;
-    const b = d.frames[Math.min(i + 1, d.frames.length - 1)];
-    const r = this._range(d);
-    const g = frame(ctx, W, H, r.x, r.y, th, (v) => pct(v, 0), (v) => pct(v, 0));
-    line(ctx, [[g.X(0), g.Y(0)], [g.X(r.x[1]), g.Y(0)]], th.muted, 1, [3, 4]);
-    line(ctx, a.frontier.map(([x, y]) => [g.X(x), g.Y(y)]), th.s1, 2.5, null, 1 - frac);
-    if (frac > 0) line(ctx, b.frontier.map(([x, y]) => [g.X(x), g.Y(y)]), th.s1, 2.5, null, frac);
-    const tx = lerp(a.tangency[0], b.tangency[0], frac), ty = lerp(a.tangency[1], b.tangency[1], frac);
-    ctx.fillStyle = th.s4; ctx.save(); ctx.translate(g.X(tx), g.Y(ty)); ctx.rotate(Math.PI / 4);
-    ctx.fillRect(-5, -5, 10, 10); ctx.restore();
-    for (let k = Math.max(0, i - 6); k < i; k++) {              // fading trail of earlier positions
+    if (!a) return "";
+    const r = this.range(d);
+    const g = axes(W, H, r.x, r.y, (v) => pct(v, 0), (v) => pct(v, 0));
+    let trail = "";
+    const first = Math.max(0, i - 6);
+    for (let k = first; k < i; k++) {
       const p = d.frames[k].portfolio;
-      ctx.globalAlpha = 0.12 + 0.08 * (k - i + 7);
-      ctx.fillStyle = th.s2; ctx.beginPath(); ctx.arc(g.X(p[0]), g.Y(p[1]), 3.5, 0, 7); ctx.fill();
+      trail += `<circle cx="${f2(g.X(p[0]))}" cy="${f2(g.Y(p[1]))}" r="3.5" class="an-pop" ` +
+        `style="fill:${C("s2")};fill-opacity:${(0.15 + 0.1 * (k - first)).toFixed(2)};animation-delay:${900 + Math.min(k - first, 60) * 8}ms"/>`;
     }
-    ctx.globalAlpha = 1;
-    const px = lerp(a.portfolio[0], b.portfolio[0], frac), py = lerp(a.portfolio[1], b.portfolio[1], frac);
-    ctx.fillStyle = th.s2; ctx.strokeStyle = th.surface; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(g.X(px), g.Y(py), 7, 0, 7); ctx.fill(); ctx.stroke();
-    caption(ctx, `${a.date} · trailing ${d.window_days} days · x: volatility, y: excess return per year`, g.box.x0, 16, th);
+    return open(W, H, this.title) + g.s +
+      dashed([[g.X(0), g.Y(0)], [g.X(r.x[1]), g.Y(0)]], C("muted"), 1, "3 4") +
+      line(a.frontier.map(([x, y]) => [g.X(x), g.Y(y)]), C("s1"), 2.5, "an-draw", 0) +
+      // diamond as a plain path: a rotate() attribute would be re-centred by transform-box:fill-box and land off the frontier
+      ((tx, ty) => `<path d="M${f2(tx)} ${f2(ty - 7)}L${f2(tx + 7)} ${f2(ty)}L${f2(tx)} ${f2(ty + 7)}L${f2(tx - 7)} ${f2(ty)}Z" ` +
+        `class="an-pop" style="fill:${C("s4")};animation-delay:900ms"/>`)(g.X(a.tangency[0]), g.Y(a.tangency[1])) +
+      trail + dot(g.X(a.portfolio[0]), g.Y(a.portfolio[1]), 7, C("s2"), 1000) +
+      label(g.b.x0, 17, `${a.date} · trailing ${d.window_days} days · x: volatility, y: excess return per year`, "start", 0) +
+      "</svg>";
   },
   below(el, d, i, h) {
     const f = d.frames[i];
@@ -285,51 +301,63 @@ const frontier = {
 // ===================================================================== 5. exposure
 const CLASS_COLORS = ["s1", "s2", "s3", "s4", "s5"];
 const exposure = {
-  file: "exposure.json", title: "Exposure Over Time", staticFrac: 0, rate: 30, animated: false,
-  blurb: "The engine's positions by asset class as a share of equity: longs stacked above zero, shorts below. " +
-    "The solid line is gross exposure (long plus short, which is also the leverage multiple), the dashed line net " +
-    "exposure, and the red dashed line the account's gross cap. Move the slider to read the book on any date.",
+  file: "exposure.json", title: "Exposure Over Time",
+  blurb: "The engine's positions by asset class as a share of equity: longs stacked above zero, shorts below. The solid " +
+    "line is gross exposure (long plus short, which is also the leverage multiple), the dashed line net exposure, and " +
+    "the red dashed line the account's gross cap. Hover to read any date; the slider marks a date and shows its breakdown.",
   labels: (d) => [d.label, "Weights, not returns"],
   legend: null,
   count: (d) => d.dates.length,
   dateOf: (d, i) => d.dates[i] || "",
-  draw(ctx, W, H, d, i, frac, th) {
-    const n = d.dates.length;
-    const cls = d.classes;
-    const colors = cls.map((_, k) => th[CLASS_COLORS[k % CLASS_COLORS.length]]);
+  svg(W, H, d, i, uid) {
+    const n = d.dates.length, cls = d.classes;
     let ymax = d.gross_cap, ymin = 0;
     for (let t = 0; t < n; t++) {
       ymax = Math.max(ymax, d.gross[t]);
       ymin = Math.min(ymin, cls.reduce((s, c) => s + d.short[c][t], 0));
     }
-    const g = frame(ctx, W, H, [0, n - 1], [ymin * 1.08, ymax * 1.08], th,
-      (v) => (d.dates[Math.round(v)] || "").slice(0, 4), (v) => v.toFixed(1) + "×");
-    const draw = (upto, alpha) => {
-      const idx = Array.from({ length: upto + 1 }, (_, t) => t);
-      let up = idx.map(() => 0), dn = idx.map(() => 0);
-      cls.forEach((c, k) => {
-        const nu = idx.map((t) => up[t] + d.long[c][t]);
-        area(ctx, idx.map((t) => [g.X(t), g.Y(nu[t])]), idx.map((t) => [g.X(t), g.Y(up[t])]), colors[k], 0.75 * alpha);
-        up = nu;
-        const nd = idx.map((t) => dn[t] + d.short[c][t]);
-        area(ctx, idx.map((t) => [g.X(t), g.Y(dn[t])]), idx.map((t) => [g.X(t), g.Y(nd[t])]), colors[k], 0.75 * alpha);
-        dn = nd;
-      });
-      line(ctx, idx.map((t) => [g.X(t), g.Y(d.gross[t])]), th.text, 1.6, null, alpha);
-      line(ctx, idx.map((t) => [g.X(t), g.Y(d.net[t])]), th.text2, 1.4, [5, 4], alpha);
-    };
-    draw(n - 1, 0.22);                                          // whole history, faint
-    draw(i, 1);                                                 // up to the cursor
-    line(ctx, [[g.X(0), g.Y(d.gross_cap)], [g.X(n - 1), g.Y(d.gross_cap)]], th.crit, 1, [4, 4]);
-    line(ctx, [[g.X(0), g.Y(0)], [g.X(n - 1), g.Y(0)]], th.muted, 1);
-    line(ctx, [[g.X(i), g.box.y0], [g.X(i), g.box.y1]], th.text, 1);
-    caption(ctx, `${d.dates[i]} · gross ${d.gross[i].toFixed(2)}× · net ${d.net[i] >= 0 ? "+" : ""}${d.net[i].toFixed(2)}×`, g.box.x0, 16, th);
+    const years = [];
+    for (let t = 0; t < n; t++) if (t === 0 || d.dates[t].slice(0, 4) !== d.dates[t - 1].slice(0, 4)) years.push(t);
+    const step = Math.max(1, Math.ceil(years.length / 8));
+    const g = axes(W, H, [0, n - 1], [ymin * 1.08, ymax * 1.08], (v) => (d.dates[Math.round(v)] || "").slice(0, 4),
+      (v) => v.toFixed(1) + "×", undefined, { xTicks: years.filter((_, k) => k % step === 0) });
+    // thin the series to about one point per pixel; areas look the same and the SVG stays small
+    const every = Math.max(1, Math.floor(n / Math.max(200, g.b.x1 - g.b.x0)));
+    const idx = [];
+    for (let t = 0; t < n; t += every) idx.push(t);
+    if (idx[idx.length - 1] !== n - 1) idx.push(n - 1);
+    let areas = "", up = idx.map(() => 0), dn = idx.map(() => 0);
+    cls.forEach((c, k) => {
+      const color = C(CLASS_COLORS[k % CLASS_COLORS.length]);
+      const nu = idx.map((t, j) => up[j] + d.long[c][t]);
+      areas += `<path d="${areaD(idx.map((t, j) => [g.X(t), g.Y(nu[j])]), idx.map((t, j) => [g.X(t), g.Y(up[j])]))}" style="fill:${color};fill-opacity:.78"/>`;
+      up = nu;
+      const nd = idx.map((t, j) => dn[j] + d.short[c][t]);
+      areas += `<path d="${areaD(idx.map((t, j) => [g.X(t), g.Y(dn[j])]), idx.map((t, j) => [g.X(t), g.Y(nd[j])]))}" style="fill:${color};fill-opacity:.78"/>`;
+      dn = nd;
+    });
+    const gross = idx.map((t) => [g.X(t), g.Y(d.gross[t])]);
+    const net = idx.map((t) => [g.X(t), g.Y(d.net[t])]);
+    return open(W, H, this.title) + `<defs>${clipDef(uid + "c", g.b, H)}</defs>` + g.s +
+      `<g clip-path="url(#${uid}c)">${areas}` +
+      `<path d="${pathD(gross)}" style="fill:none;stroke:${C("text")};stroke-width:1.6"/>` +
+      `<path d="${pathD(net)}" style="fill:none;stroke:${C("text2")};stroke-width:1.4;stroke-dasharray:5 4"/></g>` +
+      dashed([[g.X(0), g.Y(d.gross_cap)], [g.X(n - 1), g.Y(d.gross_cap)]], C("crit"), 1, "4 4") +
+      `<path d="M${f2(g.b.x0)} ${f2(g.Y(0))}H${f2(g.b.x1)}" style="stroke:${C("muted")}"/>` +
+      `<path d="M${f2(g.X(i))} ${f2(g.b.y0)}V${f2(g.b.y1)}" class="an-fade" style="stroke:${C("text")};animation-delay:900ms"/>` +
+      label(g.b.x0, 17, `${d.dates[i]} · gross ${d.gross[i].toFixed(2)}× · net ${d.net[i] >= 0 ? "+" : ""}${d.net[i].toFixed(2)}×`, "start", 900) +
+      hit(g.b) + "</svg>";
+  },
+  tip(d, i, frac) {
+    const t = Math.round(frac * (d.dates.length - 1));
+    const rows = d.classes.map((c) => `${pretty(c)}: ${pct(d.long[c][t], 0)} / ${pct(d.short[c][t], 0)}`).join("<br>");
+    return `<b>${d.dates[t]}</b><br>Gross ${d.gross[t].toFixed(2)}× · net ${d.net[t] >= 0 ? "+" : ""}${d.net[t].toFixed(2)}×<br>${rows}`;
   },
   below(el, d, i, h) {
     el.textContent = "";
     const items = d.classes.map((c, k) => [`${pretty(c)}: long ${pct(d.long[c][i], 0)}, short ${pct(d.short[c][i], 0)}`,
-      `var(--pv-${CLASS_COLORS[k % CLASS_COLORS.length]})`]);
-    items.push(["Gross (Leverage)", "var(--pv-text)"], ["Net", "var(--pv-text2)", true], ["Gross Cap", "var(--pv-crit)", true]);
+      C(CLASS_COLORS[k % CLASS_COLORS.length])]);
+    items.push(["Gross (Leverage)", C("text")], ["Net", C("text2"), true], ["Gross Cap", C("crit"), true]);
     el.append(legend(h, items));
   },
 };

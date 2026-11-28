@@ -12,11 +12,6 @@
 .pv-root .pv-head{display:flex;align-items:center;gap:16px;flex-wrap:wrap;max-width:1180px;margin:0 auto;padding:12px 20px 0}
 .pv-root .pv-title{font-weight:650;font-size:17px;margin-right:auto}
 .pv-root .pv-meta{font-size:12.5px;color:var(--pv-muted)}
-.pv-root .pv-toggle{display:inline-flex;align-items:center;gap:8px;font-size:13px;color:var(--pv-text2);cursor:pointer;user-select:none}
-.pv-root .pv-toggle input{width:34px;height:18px;appearance:none;background:var(--pv-line);border-radius:9px;position:relative;cursor:pointer;margin:0}
-.pv-root .pv-toggle input::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--pv-surface);transition:left .15s}
-.pv-root .pv-toggle input:checked{background:var(--pv-s1)}
-.pv-root .pv-toggle input:checked::after{left:18px}
 .pv-root .pv-tabs{display:flex;gap:2px;overflow-x:auto;max-width:1180px;margin:0 auto;padding:8px 20px 0}
 .pv-root .pv-tab{border:0;background:none;color:var(--pv-text2);font:inherit;font-size:14px;padding:8px 12px;border-bottom:2px solid transparent;cursor:pointer;white-space:nowrap}
 .pv-root .pv-tab[aria-selected=true]{color:var(--pv-text);border-bottom-color:var(--pv-s1);font-weight:600}
@@ -40,7 +35,6 @@
 .pv-root .pv-h{font-size:18px;font-weight:650;margin:0 0 2px}
 .pv-root .pv-label{display:inline-block;font-size:12px;color:var(--pv-text2);border:1px solid var(--pv-line);border-radius:999px;padding:1px 9px;margin:2px 6px 8px 0}
 .pv-root .pv-p{color:var(--pv-text2);margin:4px 0 10px;max-width:80ch;font-size:14px}
-.pv-root .pv-canvas{display:block;width:100%;height:440px}
 .pv-root .pv-controls{display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap;font-size:13px;color:var(--pv-text2)}
 .pv-root .pv-btn{border:1px solid var(--pv-line);background:var(--pv-surface);color:var(--pv-text);border-radius:8px;padding:5px 12px;font:inherit;cursor:pointer;min-width:74px}
 .pv-root .pv-btn:disabled{opacity:.45;cursor:not-allowed}
@@ -54,3 +48,47 @@
 .pv-root .pv-flag b{font-weight:650}
 .pv-root .pv-msg{padding:28px;text-align:center;color:var(--pv-text2)}
 .pv-root code{font-size:12.5px;background:var(--pv-bg);padding:1px 5px;border-radius:4px}
+
+/* ---------------------------------------------------------------- charts (SVG) */
+.pv-root .pv-chartwrap{position:relative}
+.pv-root .pv-chart{width:100%;min-height:440px}
+.pv-root .pv-chart svg{display:block;width:100%;height:auto;overflow:visible}
+.pv-root .pv-tick{font-size:12px;fill:var(--pv-muted)}
+.pv-root .pv-cap{font-size:12.5px;fill:var(--pv-text2)}
+.pv-root .pv-rowlab{font-size:13px;fill:var(--pv-text2)}
+.pv-root .pv-strong{fill:var(--pv-text);font-weight:600}
+.pv-root .pv-hit{fill:var(--pv-text);fill-opacity:0;cursor:crosshair;transition:fill-opacity var(--dur-micro) var(--ease-out)}
+.pv-root .pv-hit:hover{fill-opacity:.03}
+.pv-root .pv-tip{position:absolute;pointer-events:none;background:var(--pv-surface);border:1px solid var(--pv-line);border-radius:8px;
+  padding:6px 9px;font-size:12px;line-height:1.45;color:var(--pv-text);box-shadow:0 2px 10px rgba(0,0,0,.18);white-space:nowrap;z-index:4}
+.pv-root .pv-tip[hidden]{display:none}
+.pv-root .pv-motion{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--pv-line);background:var(--pv-surface);
+  color:var(--pv-text2);border-radius:999px;padding:4px 11px;font:inherit;font-size:13px;cursor:pointer;
+  transition:background var(--dur-micro) var(--ease-out),border-color var(--dur-micro) var(--ease-out),color var(--dur-micro) var(--ease-out)}
+.pv-root .pv-motion:hover{border-color:var(--pv-muted)}
+.pv-root .pv-motion:focus-visible{outline:2px solid var(--pv-s1);outline-offset:2px;transition:none}
+.pv-root .pv-motion-dot{width:8px;height:8px;border-radius:50%;background:var(--pv-line)}
+.pv-root .pv-motion[aria-pressed=true]{color:var(--pv-text)}
+.pv-root .pv-motion[aria-pressed=true] .pv-motion-dot{background:var(--pv-s3)}
+
+/* ---------------------------------------------------------------- motion (chart-motion system)
+   Charts draw in once from their data origin when their data arrives, then stay still.
+   Only transform, opacity and stroke-dashoffset are animated. Keyframes define only `from`,
+   so the final frame is the real chart; with motion off it is simply already there. */
+:root{--ease-out:cubic-bezier(0.16,1,0.3,1);--dur-micro:120ms;--dur-short:220ms;--dur-long:420ms;--dur-draw:900ms}
+@keyframes grow-y{from{transform:scaleY(0)}}
+@keyframes grow-x{from{transform:scaleX(0)}}
+@keyframes rise{from{opacity:0;transform:translateY(8px)}}
+@keyframes fade{from{opacity:0}}
+@keyframes draw{from{stroke-dashoffset:1}to{stroke-dashoffset:0}}
+@keyframes pop{from{opacity:0;transform:scale(0.2)}}
+.an-gy{transform-box:fill-box;animation:grow-y var(--dur-long) var(--ease-out) both}
+.an-gx{animation:grow-x var(--dur-long) var(--ease-out) both}
+.an-rise{animation:rise var(--dur-long) var(--ease-out) both}
+.an-fade{animation:fade var(--dur-long) var(--ease-out) both}
+.an-draw{stroke-dasharray:1;animation:draw var(--dur-draw) var(--ease-out) both}
+.an-pop{transform-box:fill-box;transform-origin:center;animation:pop var(--dur-short) var(--ease-out) both}
+.an-clip{transform-box:view-box;animation:grow-x var(--dur-draw) var(--ease-out) both}
+.pv-root .pv-still *{animation:none!important}
+[data-motion="off"] *,[data-motion="off"] *::before,[data-motion="off"] *::after{animation:none!important;transition:none!important}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:0.01ms!important;animation-iteration-count:1!important;animation-delay:0ms!important;transition-duration:0.01ms!important}}
